@@ -141,6 +141,26 @@ const STOP_WORDS = new Set([
   "you",
 ]);
 
+const QUESTION_STOP_WORDS = new Set([
+  "about",
+  "current",
+  "detail",
+  "details",
+  "does",
+  "explain",
+  "give",
+  "important",
+  "main",
+  "page",
+  "say",
+  "simple",
+  "simpler",
+  "tell",
+  "there",
+  "these",
+  "topic",
+]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -557,8 +577,34 @@ function summarizeFallback(page: CompanionPagePayload): PageSummary {
 function answerFallback(page: CompanionPagePayload, question: string): PageAnswer {
   const summary = summarizeFallback(page);
   const lowerQuestion = question.toLowerCase();
+  const sentences = getMeaningfulSentences(page.text);
   const keyTerms = extractKeyPhrases(page.text, page.title);
+  const intent = detectQuestionIntent(question);
+  const questionTokens = extractQuestionTokens(question);
+  const relevant = findRelevantSentencesForQuestion(
+    sentences,
+    questionTokens,
+    intent
+  );
   let answer: string;
+
+  if (!supportsQuestion(relevant, questionTokens, intent)) {
+    return {
+      answer: trimSentence(
+        `I can't find a reliable answer to "${question}" in this page. The page mainly focuses on ${summary.summary.toLowerCase()}`,
+        340
+      ),
+      followUps: [
+        "What does this page say most clearly?",
+        "What background does this page provide?",
+        "Who or what is central to this page?",
+      ],
+      model: "extractive-fallback",
+    };
+  }
+
+  const primaryEvidence = relevant[0]?.sentence || "";
+  const secondaryEvidence = relevant[1]?.sentence || "";
 
   if (
     lowerQuestion.includes("main argument") ||
@@ -580,13 +626,20 @@ function answerFallback(page: CompanionPagePayload, question: string): PageAnswe
     lowerQuestion.includes("important")
   ) {
     answer = `It matters because ${summary.background}`;
-  } else if (lowerQuestion.startsWith("who")) {
+  } else if (intent.asksForWho) {
     answer =
       keyTerms.length > 0
-        ? `The page mainly centers on ${keyTerms.slice(0, 3).join(", ")}. ${summary.summary}`
-        : summary.summary;
+        ? `The page points most clearly to ${keyTerms.slice(0, 3).join(", ")}. ${trimSentence(primaryEvidence || summary.summary, 180)}`
+        : trimSentence(primaryEvidence || summary.summary, 240);
+  } else if (intent.asksForNumber) {
+    answer = trimSentence(primaryEvidence || summary.summary, 260);
+  } else if (intent.asksForWhen || intent.asksForWhere) {
+    answer = trimSentence(primaryEvidence || secondaryEvidence || summary.summary, 260);
   } else {
-    answer = `Based on this page, ${summary.summary} ${summary.background}`;
+    answer = trimSentence(
+      `${primaryEvidence || summary.summary} ${secondaryEvidence || ""}`.trim(),
+      320
+    );
   }
 
   return {
@@ -602,45 +655,32 @@ function deepDiveFallback(page: CompanionPagePayload): PageDeepDive {
   const keyTerms = extractKeyPhrases(page.text, page.title);
   const contrastSentences = extractContrastSentences(sentences);
   const selected = selectTopSentences(sentences, 5);
+  const used = new Set<string>();
 
-  const insights = uniqueStrings(
-    [summary.standfirst, ...selected]
-      .filter(Boolean)
-      .map((sentence) => trimSentence(sentence, 120))
-  ).slice(0, BULLET_COUNT);
+  const insights = takeUniqueItems(
+    [summary.standfirst, ...selected],
+    BULLET_COUNT,
+    used,
+    trimSentence(summary.summary, 120)
+  );
 
-  const background = uniqueStrings(
-    [
-      summary.background,
-      sentences[0],
-      sentences[1],
-      page.context.promptHint,
-    ]
-      .filter(Boolean)
-      .map((sentence) => trimSentence(sentence, 120))
-  ).slice(0, BULLET_COUNT);
+  const background = takeUniqueItems(
+    [summary.background, sentences[0], sentences[1], page.context.promptHint],
+    BULLET_COUNT,
+    used,
+    trimSentence(page.context.promptHint, 120)
+  );
 
-  const opposingViewpoints = uniqueStrings(
-    (
-      contrastSentences.length > 0
-        ? contrastSentences
-        : buildDefaultOpposingViewpoints(page)
-    ).map((sentence) => trimSentence(sentence, 120))
-  ).slice(0, BULLET_COUNT);
+  const opposingViewpoints = takeUniqueItems(
+    contrastSentences.length > 0
+      ? contrastSentences
+      : buildDefaultOpposingViewpoints(page),
+    BULLET_COUNT,
+    used,
+    trimSentence(summary.background, 120)
+  );
 
   const relatedTopics = uniqueStrings(keyTerms).slice(0, RELATED_TOPIC_COUNT);
-
-  while (insights.length < BULLET_COUNT) {
-    insights.push(trimSentence(summary.summary, 120));
-  }
-
-  while (background.length < BULLET_COUNT) {
-    background.push(trimSentence(page.context.promptHint, 120));
-  }
-
-  while (opposingViewpoints.length < BULLET_COUNT) {
-    opposingViewpoints.push(trimSentence(summary.background, 120));
-  }
 
   while (relatedTopics.length < RELATED_TOPIC_COUNT) {
     relatedTopics.push(`More on ${page.title}`);
@@ -827,6 +867,147 @@ function generateFollowUps(
         `What should I read next on this topic?`,
       ];
   }
+}
+
+function detectQuestionIntent(question: string): {
+  asksForNumber: boolean;
+  asksForWho: boolean;
+  asksForWhen: boolean;
+  asksForWhere: boolean;
+  asksForWhy: boolean;
+  simplify: boolean;
+} {
+  const lower = question.toLowerCase();
+
+  return {
+    asksForNumber:
+      /\b(how much|how many|amount|cost|price|value|worth|rate|percent|percentage)\b/.test(
+        lower
+      ),
+    asksForWho: /^\s*who\b/.test(lower),
+    asksForWhen: /^\s*when\b/.test(lower),
+    asksForWhere: /^\s*where\b/.test(lower),
+    asksForWhy:
+      /^\s*why\b/.test(lower) || lower.includes("why is this important"),
+    simplify:
+      lower.includes("simple") ||
+      lower.includes("simpler") ||
+      lower.startsWith("explain"),
+  };
+}
+
+function extractQuestionTokens(question: string): string[] {
+  const words = normalizeWhitespace(question.toLowerCase()).match(/[a-z0-9']+/g) || [];
+
+  return uniqueStrings(
+    words.filter(
+      (word) =>
+        word.length > 2 &&
+        !STOP_WORDS.has(word) &&
+        !QUESTION_STOP_WORDS.has(word)
+    )
+  );
+}
+
+function findRelevantSentencesForQuestion(
+  sentences: string[],
+  tokens: string[],
+  intent: ReturnType<typeof detectQuestionIntent>
+): Array<{ sentence: string; score: number }> {
+  return sentences
+    .map((sentence) => {
+      const lower = sentence.toLowerCase();
+      let score = 0;
+
+      for (const token of tokens) {
+        if (lower.includes(token)) {
+          score += 2;
+        }
+      }
+
+      if (intent.asksForNumber && hasNumericEvidence(sentence)) {
+        score += 1.5;
+      }
+
+      if (intent.asksForWhen && /\b\d{4}\b|january|february|march|april|may|june|july|august|september|october|november|december/i.test(sentence)) {
+        score += 1.2;
+      }
+
+      if (intent.asksForWhere && /\b(in|at|from|near|across|inside|outside)\b/i.test(sentence)) {
+        score += 0.8;
+      }
+
+      if (intent.asksForWhy && /\b(because|after|due to|as a result|so that|in response to)\b/i.test(sentence)) {
+        score += 1.2;
+      }
+
+      if (intent.asksForWho && /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/.test(sentence)) {
+        score += 0.6;
+      }
+
+      return { sentence, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+}
+
+function supportsQuestion(
+  relevant: Array<{ sentence: string; score: number }>,
+  tokens: string[],
+  intent: ReturnType<typeof detectQuestionIntent>
+): boolean {
+  if (relevant.length === 0) {
+    return false;
+  }
+
+  const bestScore = relevant[0]?.score || 0;
+
+  if (tokens.length === 0) {
+    return bestScore > 0;
+  }
+
+  if (intent.asksForNumber) {
+    return bestScore >= 2 && relevant.some((item) => hasNumericEvidence(item.sentence));
+  }
+
+  return bestScore >= 2;
+}
+
+function hasNumericEvidence(sentence: string): boolean {
+  return /\d|%|\$|£|€|¥|\byen\b|\bdollar\b|\bpound\b|\beuro\b|\bmillion\b|\bbillion\b/i.test(
+    sentence
+  );
+}
+
+function takeUniqueItems(
+  items: Array<string | undefined>,
+  count: number,
+  used: Set<string>,
+  fallback: string
+): string[] {
+  const result: string[] = [];
+
+  for (const item of items) {
+    const normalized = trimSentence(normalizeWhitespace(item || ""), 120);
+
+    if (!normalized || used.has(normalized)) {
+      continue;
+    }
+
+    used.add(normalized);
+    result.push(normalized);
+
+    if (result.length === count) {
+      return result;
+    }
+  }
+
+  while (result.length < count) {
+    const normalizedFallback = trimSentence(fallback, 120);
+    result.push(normalizedFallback);
+  }
+
+  return result;
 }
 
 function extractOutputText(data: OpenAIResponse): string {

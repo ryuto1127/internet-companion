@@ -1102,7 +1102,7 @@ export class Overlay {
 
   private formatModel(model?: string): string {
     if (!model || model === "extractive-fallback") {
-      return "Local fallback";
+      return "Basic mode";
     }
 
     return `OpenAI ${model}`;
