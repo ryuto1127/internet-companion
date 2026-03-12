@@ -2486,14 +2486,24 @@ module.exports = {
 ;// ./src/overlay.ts
 const OVERLAY_ID = "ic-overlay-root";
 const STYLE_ID = "ic-overlay-style";
+const PAGE_SHIFT_CLASS = "ic-page-shifted";
+const MOBILE_BREAKPOINT = 768;
+const PANEL_WIDTH = 320;
+const PANEL_GAP = 24;
 class Overlay {
     constructor() {
         this.isVisible = false;
+        this.handleResize = () => {
+            if (this.isVisible) {
+                this.applyPageInset();
+            }
+        };
         this.root = this.createRoot();
         this.panel = this.createPanel();
         this.root.appendChild(this.panel);
         document.body.appendChild(this.root);
         this.injectStyles();
+        window.addEventListener("resize", this.handleResize, { passive: true });
     }
     createRoot() {
         const existing = document.getElementById(OVERLAY_ID);
@@ -2537,6 +2547,18 @@ class Overlay {
         const style = document.createElement("style");
         style.id = STYLE_ID;
         style.textContent = `
+      html.${PAGE_SHIFT_CLASS} {
+        overflow-x: hidden !important;
+        scroll-padding-right: var(--ic-page-offset, 0px) !important;
+      }
+
+      body.${PAGE_SHIFT_CLASS} {
+        box-sizing: border-box !important;
+        max-width: 100vw !important;
+        padding-right: var(--ic-page-offset, 0px) !important;
+        transition: padding-right 0.28s ease !important;
+      }
+
       #${OVERLAY_ID} {
         --ic-bg: rgba(11, 17, 27, 0.96);
         --ic-bg-soft: rgba(22, 30, 43, 0.9);
@@ -2550,10 +2572,10 @@ class Overlay {
         --ic-accent-soft: rgba(241, 161, 111, 0.18);
         --ic-shadow: 0 24px 80px rgba(1, 5, 14, 0.45);
         position: fixed;
-        top: 12px;
-        right: 12px;
-        bottom: 12px;
-        width: min(440px, calc(100vw - 24px));
+        top: 14px;
+        right: 14px;
+        bottom: 14px;
+        width: min(${PANEL_WIDTH}px, calc(100vw - 28px));
         z-index: 2147483647;
         pointer-events: none;
       }
@@ -2573,7 +2595,7 @@ class Overlay {
           radial-gradient(circle at top right, rgba(125, 170, 255, 0.12), transparent 32%),
           linear-gradient(180deg, rgba(17, 24, 36, 0.98), rgba(8, 12, 20, 0.98));
         border: 1px solid var(--ic-line);
-        border-radius: 28px;
+        border-radius: 24px;
         box-shadow: var(--ic-shadow);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
@@ -2596,7 +2618,7 @@ class Overlay {
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        padding: 18px 20px 16px;
+        padding: 16px 16px 14px;
         border-bottom: 1px solid var(--ic-line);
         background: linear-gradient(180deg, rgba(255, 248, 239, 0.05), rgba(255, 248, 239, 0));
         flex-shrink: 0;
@@ -2671,7 +2693,7 @@ class Overlay {
       .ic-body {
         flex: 1;
         overflow-y: auto;
-        padding: 18px;
+        padding: 14px;
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 248, 239, 0.18) transparent;
       }
@@ -2688,13 +2710,13 @@ class Overlay {
       .ic-content {
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
       }
 
       .ic-hero {
         position: relative;
-        padding: 20px;
-        border-radius: 24px;
+        padding: 16px;
+        border-radius: 20px;
         background:
           linear-gradient(180deg, rgba(255, 248, 239, 0.08), rgba(255, 248, 239, 0.03)),
           rgba(255, 248, 239, 0.03);
@@ -2724,21 +2746,21 @@ class Overlay {
 
       .ic-title {
         margin: 12px 0 14px;
-        font: 600 28px/1.12 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 600 24px/1.12 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
         text-wrap: balance;
       }
 
       .ic-standfirst {
         position: relative;
-        max-width: 28ch;
-        font: 500 20px/1.4 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        max-width: 24ch;
+        font: 500 17px/1.45 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
       .ic-card {
-        padding: 18px;
-        border-radius: 22px;
+        padding: 15px;
+        border-radius: 18px;
         background: var(--ic-card);
         border: 1px solid var(--ic-line);
       }
@@ -2767,7 +2789,7 @@ class Overlay {
       }
 
       .ic-summary {
-        font: 400 17px/1.75 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 400 15px/1.7 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
       }
 
@@ -2782,7 +2804,7 @@ class Overlay {
       .ic-list li {
         position: relative;
         padding-left: 18px;
-        font: 400 16px/1.6 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 400 14px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
@@ -2829,7 +2851,7 @@ class Overlay {
 
       .ic-loading-copy {
         margin-top: 12px;
-        font: 400 16px/1.6 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 400 14px/1.55 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
@@ -2871,20 +2893,20 @@ class Overlay {
       }
 
       .ic-status {
-        padding: 18px;
-        border-radius: 22px;
+        padding: 16px;
+        border-radius: 18px;
         border: 1px solid var(--ic-line);
         background: linear-gradient(180deg, rgba(255, 248, 239, 0.07), rgba(255, 248, 239, 0.03));
       }
 
       .ic-status-title {
         margin: 8px 0 10px;
-        font: 600 22px/1.2 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 600 20px/1.2 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
       }
 
       .ic-status-copy {
-        font: 400 16px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 400 14px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
@@ -2895,6 +2917,10 @@ class Overlay {
       }
 
       @media (max-width: 768px) {
+        body.${PAGE_SHIFT_CLASS} {
+          padding-right: 0 !important;
+        }
+
         #${OVERLAY_ID} {
           top: auto;
           left: 10px;
@@ -2913,11 +2939,11 @@ class Overlay {
         }
 
         .ic-title {
-          font-size: 24px;
+          font-size: 22px;
         }
 
         .ic-standfirst {
-          font-size: 18px;
+          font-size: 17px;
         }
 
         .ic-card-head {
@@ -2928,18 +2954,46 @@ class Overlay {
     `;
         (document.head || document.documentElement).appendChild(style);
     }
+    getPageInset() {
+        if (window.innerWidth <= MOBILE_BREAKPOINT) {
+            return 0;
+        }
+        return PANEL_WIDTH + PANEL_GAP;
+    }
+    applyPageInset() {
+        const inset = this.getPageInset();
+        if (inset <= 0) {
+            this.removePageInset();
+            return;
+        }
+        document.documentElement.style.setProperty("--ic-page-offset", `${inset}px`);
+        document.body.style.setProperty("--ic-page-offset", `${inset}px`);
+        document.documentElement.classList.add(PAGE_SHIFT_CLASS);
+        document.body.classList.add(PAGE_SHIFT_CLASS);
+    }
+    removePageInset() {
+        document.documentElement.classList.remove(PAGE_SHIFT_CLASS);
+        document.body.classList.remove(PAGE_SHIFT_CLASS);
+        document.documentElement.style.removeProperty("--ic-page-offset");
+        document.body.style.removeProperty("--ic-page-offset");
+    }
     show() {
         if (this.isVisible) {
             return;
         }
         this.isVisible = true;
+        this.applyPageInset();
         requestAnimationFrame(() => {
             this.panel.classList.add("ic-visible");
         });
     }
     hide() {
+        if (!this.isVisible) {
+            return;
+        }
         this.isVisible = false;
         this.panel.classList.remove("ic-visible");
+        this.removePageInset();
     }
     toggle() {
         this.isVisible ? this.hide() : this.show();
@@ -3124,52 +3178,119 @@ async function analyzeContent(payload) {
 
 
 
+const ENABLED_KEY = "icEnabled";
 let overlay = null;
+let isEnabled = false;
+let inFlightRun = null;
+let lastAnalyzedUrl = null;
+let scheduledUrlRefresh = null;
 function getOrCreateOverlay() {
     if (!overlay) {
         overlay = new Overlay();
     }
     return overlay;
 }
-async function run() {
-    const ui = getOrCreateOverlay();
-    ui.show();
-    ui.setState("loading");
-    const extracted = extractContent();
-    if (!extracted) {
-        ui.setState("no-content");
+async function getEnabledState() {
+    const stored = await chrome.storage.local.get({ [ENABLED_KEY]: true });
+    return stored[ENABLED_KEY] !== false;
+}
+async function run(force = false) {
+    const currentUrl = window.location.href;
+    if (!force && lastAnalyzedUrl === currentUrl && overlay) {
+        overlay.show();
         return;
     }
-    try {
-        const result = await analyzeContent({
-            url: window.location.href,
-            title: extracted.title,
-            text: extracted.text,
-        });
-        ui.setState("success", {
-            title: extracted.title,
-            standfirst: result.standfirst,
-            summary: result.summary,
-            bullets: result.bullets,
-            model: result.model,
-        });
+    if (inFlightRun) {
+        return inFlightRun;
     }
-    catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to connect to API.";
-        ui.setState("error", { error: message });
-    }
+    const task = (async () => {
+        const ui = getOrCreateOverlay();
+        ui.show();
+        ui.setState("loading");
+        const extracted = extractContent();
+        if (!extracted) {
+            lastAnalyzedUrl = currentUrl;
+            ui.setState("no-content");
+            return;
+        }
+        try {
+            const result = await analyzeContent({
+                url: currentUrl,
+                title: extracted.title,
+                text: extracted.text,
+            });
+            lastAnalyzedUrl = currentUrl;
+            ui.setState("success", {
+                title: extracted.title,
+                standfirst: result.standfirst,
+                summary: result.summary,
+                bullets: result.bullets,
+                model: result.model,
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to connect to API.";
+            ui.setState("error", { error: message });
+        }
+    })();
+    inFlightRun = task.finally(() => {
+        inFlightRun = null;
+    });
+    return inFlightRun;
 }
-// Listen for trigger from background
-chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === "IC_TOGGLE") {
-        if (overlay) {
-            overlay.toggle();
-        }
-        else {
-            run();
-        }
+async function applyEnabledState(enabled) {
+    isEnabled = enabled;
+    if (!enabled) {
+        overlay?.hide();
+        return;
     }
-});
+    await run();
+}
+function scheduleRefreshForNavigation() {
+    if (!isEnabled) {
+        return;
+    }
+    if (scheduledUrlRefresh !== null) {
+        window.clearTimeout(scheduledUrlRefresh);
+    }
+    scheduledUrlRefresh = window.setTimeout(() => {
+        scheduledUrlRefresh = null;
+        if (!isEnabled) {
+            return;
+        }
+        if (window.location.href === lastAnalyzedUrl) {
+            return;
+        }
+        void run(true);
+    }, 350);
+}
+function watchUrlChanges() {
+    const originalPushState = history.pushState.bind(history);
+    const originalReplaceState = history.replaceState.bind(history);
+    history.pushState = ((...args) => {
+        const result = originalPushState(...args);
+        scheduleRefreshForNavigation();
+        return result;
+    });
+    history.replaceState = ((...args) => {
+        const result = originalReplaceState(...args);
+        scheduleRefreshForNavigation();
+        return result;
+    });
+    window.addEventListener("popstate", scheduleRefreshForNavigation);
+    window.addEventListener("hashchange", scheduleRefreshForNavigation);
+}
+async function initialize() {
+    watchUrlChanges();
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== "local" || !changes[ENABLED_KEY]) {
+            return;
+        }
+        void applyEnabledState(changes[ENABLED_KEY].newValue !== false);
+    });
+    await applyEnabledState(await getEnabledState());
+}
+void initialize();
 
 })();
 

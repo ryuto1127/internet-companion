@@ -3,7 +3,7 @@
   "name": "Internet Companion",
   "version": "1.0.0",
   "description": "Extract and summarize article content with a clean overlay.",
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "dist/background.js",

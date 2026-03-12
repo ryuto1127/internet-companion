@@ -1,26 +1,50 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 
+const ENABLED_KEY = "icEnabled";
+async function getEnabledState() {
+    const stored = await chrome.storage.local.get({ [ENABLED_KEY]: true });
+    return stored[ENABLED_KEY] !== false;
+}
+async function setEnabledState(enabled) {
+    await chrome.storage.local.set({ [ENABLED_KEY]: enabled });
+}
+async function syncActionState() {
+    const enabled = await getEnabledState();
+    await chrome.action.setBadgeBackgroundColor({
+        color: enabled ? "#F1A16F" : "#68768A",
+    });
+    await chrome.action.setBadgeText({
+        text: enabled ? "ON" : "OFF",
+    });
+    await chrome.action.setTitle({
+        title: enabled
+            ? "Internet Companion: On"
+            : "Internet Companion: Off",
+    });
+}
+chrome.runtime.onInstalled.addListener(async () => {
+    const stored = await chrome.storage.local.get(ENABLED_KEY);
+    if (typeof stored[ENABLED_KEY] !== "boolean") {
+        await setEnabledState(true);
+    }
+    await syncActionState();
+});
+chrome.runtime.onStartup.addListener(async () => {
+    await syncActionState();
+});
 chrome.action.onClicked.addListener(async (tab) => {
-    if (!tab.id || !tab.url)
+    if (!tab.url) {
         return;
-    // Skip chrome:// and extension pages
+    }
     if (tab.url.startsWith("chrome://") ||
         tab.url.startsWith("chrome-extension://") ||
         tab.url.startsWith("about:")) {
         return;
     }
-    try {
-        await chrome.tabs.sendMessage(tab.id, { type: "IC_TOGGLE" });
-    }
-    catch {
-        // Content script not yet injected — inject it first then send
-        await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["dist/content.js"],
-        });
-        await chrome.tabs.sendMessage(tab.id, { type: "IC_TOGGLE" });
-    }
+    const enabled = !(await getEnabledState());
+    await setEnabledState(enabled);
+    await syncActionState();
 });
 
 /******/ })()
