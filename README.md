@@ -1,6 +1,6 @@
 # Internet Companion
 
-A Chrome extension that extracts article content from any page, sends it to a backend API, and displays the summary in a minimal dark overlay.
+A Chrome extension and Cloudflare Worker pair that turns any page into an AI browsing companion. It detects page context, summarizes content, answers questions about the current page, highlights a basic credibility signal, and offers a deeper topic brief.
 
 ## Structure
 
@@ -13,9 +13,13 @@ internet-companion/
 ├── src/
 │   ├── content.ts         # Content script entry point
 │   ├── background.ts      # Service worker
+│   ├── api.ts             # Backend API client
+│   ├── credibility.ts     # Source credibility heuristics
 │   ├── extractor.ts       # @mozilla/readability extraction
 │   ├── overlay.ts         # Overlay UI component
-│   └── api.ts             # Backend API client
+│   ├── pageContext.ts     # Page-type detection
+│   └── types.ts           # Shared frontend types
+├── worker.ts              # Cloudflare Worker backend
 ├── icons/
 │   ├── icon16.png
 │   ├── icon48.png
@@ -31,7 +35,7 @@ internet-companion/
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked**
 4. Select the `internet-companion/` folder
-5. Click the extension icon on any article page to trigger it
+5. Click the extension icon to toggle the companion on or off
 
 The pre-built `dist/` files are included so the extension works immediately without a build step.
 
@@ -46,36 +50,27 @@ npm run build
 
 This compiles TypeScript and bundles `@mozilla/readability` into `dist/content.js`.
 
+## Features
+
+- Context-aware page behavior for news, Wikipedia, and general pages
+- Ask AI about the page you are currently reading
+- Basic source credibility indicator based on domain and source type
+- Deep Dive mode for broader context and related angles
+- Persistent on/off state with a compact overlay that shifts the page instead of covering it
+
 ## Backend API
 
-The extension currently POSTs to:
+The extension posts mode-based requests to:
 
 `https://internet-companion.ryuto-2007-11-27.workers.dev/api/analyze`
 
-**Request:**
-```json
-{
-  "url": "https://example.com/article",
-  "title": "Article Title",
-  "text": "Full extracted article text..."
-}
-```
+Supported modes:
 
-**Response:**
-```json
-{
-  "standfirst": "A one-sentence editorial takeaway.",
-  "summary": "A concise 2-3 sentence brief of the article...",
-  "bullets": [
-    "Three concrete key points.",
-    "Pulled from the article text.",
-    "Designed for quick scanning."
-  ],
-  "model": "gpt-5-mini"
-}
-```
+- `summary`
+- `ask`
+- `deep-dive`
 
-The worker implementation lives in `worker.ts` and already includes CORS headers for browser requests.
+Each request includes the extracted page text, detected page context, and credibility signal so the worker can adapt its response.
 
 ## OpenAI Model
 
@@ -105,8 +100,9 @@ That regenerates `dist/content.js`, which is the file Chrome actually loads.
 
 ## Usage
 
-1. Navigate to any article or webpage
-2. Click the **Internet Companion** icon in your Chrome toolbar
-3. The dark panel slides in from the right with the summary
-4. Click the × button or the icon again to toggle it closed
+1. Navigate to any article or information-heavy webpage
+2. Click the **Internet Companion** icon to turn the companion on
+3. Read the generated summary, credibility signal, and context-specific brief
+4. Ask questions in the overlay or trigger **Deep Dive**
+5. Click the icon again to turn the companion off
 # internet-companion

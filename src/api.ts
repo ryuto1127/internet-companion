@@ -1,14 +1,26 @@
-export interface AnalyzeRequest {
-  url: string;
-  title: string;
-  text: string;
+import type {
+  CompanionPagePayload,
+  PageAnswer,
+  PageDeepDive,
+  PageSummary,
+} from "./types";
+
+interface CompanionRequest {
+  mode: "summary" | "ask" | "deep-dive";
+  page: CompanionPagePayload;
+  question?: string;
 }
 
-export interface AnalyzeResponse {
-  standfirst: string;
-  summary: string;
-  bullets: string[];
-  model: string;
+interface SummaryApiResponse {
+  summary: PageSummary;
+}
+
+interface AskApiResponse {
+  answer: PageAnswer;
+}
+
+interface DeepDiveApiResponse {
+  deepDive: PageDeepDive;
 }
 
 const API_BASE_URL =
@@ -16,17 +28,55 @@ const API_BASE_URL =
 
 const MAX_TEXT_LENGTH = 12000;
 
-export async function analyzeContent(
-  payload: AnalyzeRequest
-): Promise<AnalyzeResponse> {
+export async function analyzePage(
+  page: CompanionPagePayload
+): Promise<PageSummary> {
+  const response = await requestCompanion<SummaryApiResponse>({
+    mode: "summary",
+    page,
+  });
 
-  const safePayload: AnalyzeRequest = {
-    ...payload,
-    text: payload.text.slice(0, MAX_TEXT_LENGTH),
-  };
+  return response.summary;
+}
 
+export async function askPageQuestion(
+  page: CompanionPagePayload,
+  question: string
+): Promise<PageAnswer> {
+  const response = await requestCompanion<AskApiResponse>({
+    mode: "ask",
+    page,
+    question,
+  });
+
+  return response.answer;
+}
+
+export async function deepDivePage(
+  page: CompanionPagePayload
+): Promise<PageDeepDive> {
+  const response = await requestCompanion<DeepDiveApiResponse>({
+    mode: "deep-dive",
+    page,
+  });
+
+  return response.deepDive;
+}
+
+async function requestCompanion<TResponse>(
+  payload: CompanionRequest
+): Promise<TResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  const safePayload: CompanionRequest = {
+    ...payload,
+    question: payload.question?.trim(),
+    page: {
+      ...payload.page,
+      text: payload.page.text.slice(0, MAX_TEXT_LENGTH),
+    },
+  };
 
   let response: Response;
 
@@ -39,7 +89,7 @@ export async function analyzeContent(
       body: JSON.stringify(safePayload),
       signal: controller.signal,
     });
-  } catch (err) {
+  } catch {
     clearTimeout(timeout);
     throw new Error("Network error while contacting API");
   }
@@ -50,13 +100,9 @@ export async function analyzeContent(
     throw new Error(`API error: ${response.status} ${response.statusText}`);
   }
 
-  let data: AnalyzeResponse;
-
   try {
-    data = await response.json();
+    return (await response.json()) as TResponse;
   } catch {
     throw new Error("Invalid JSON response from API");
   }
-
-  return data;
 }

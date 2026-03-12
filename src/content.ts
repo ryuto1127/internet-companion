@@ -1,18 +1,32 @@
-import { Overlay } from "./overlay";
+import { analyzePage, askPageQuestion, deepDivePage } from "./api";
+import { evaluateCredibility } from "./credibility";
 import { extractContent } from "./extractor";
-import { analyzeContent } from "./api";
+import { Overlay } from "./overlay";
+import { detectPageContext } from "./pageContext";
+import type { CompanionPagePayload, PageSummary } from "./types";
 
 const ENABLED_KEY = "icEnabled";
 
 let overlay: Overlay | null = null;
 let isEnabled = false;
-let inFlightRun: Promise<void> | null = null;
+let summaryRun: Promise<void> | null = null;
+let askRun: Promise<void> | null = null;
+let deepDiveRun: Promise<void> | null = null;
 let lastAnalyzedUrl: string | null = null;
 let scheduledUrlRefresh: number | null = null;
+let currentPage: CompanionPagePayload | null = null;
+let currentSummary: PageSummary | null = null;
 
 function getOrCreateOverlay(): Overlay {
   if (!overlay) {
-    overlay = new Overlay();
+    overlay = new Overlay({
+      onAsk: (question) => {
+        void askCurrentPage(question);
+      },
+      onDeepDive: () => {
+        void deepDiveCurrentPage();
+      },
+    });
   }
 
   return overlay;
@@ -23,58 +37,132 @@ async function getEnabledState(): Promise<boolean> {
   return stored[ENABLED_KEY] !== false;
 }
 
-async function run(force = false): Promise<void> {
+function buildPagePayload(): CompanionPagePayload | null {
+  const extracted = extractContent();
+
+  if (!extracted) {
+    return null;
+  }
+
+  const context = detectPageContext(window.location.href, document, extracted);
+  const credibility = evaluateCredibility(window.location.href, context);
+
+  return {
+    url: window.location.href,
+    title: extracted.title || document.title || "Untitled page",
+    text: extracted.text,
+    context,
+    credibility,
+  };
+}
+
+async function runSummary(force = false): Promise<void> {
   const currentUrl = window.location.href;
 
-  if (!force && lastAnalyzedUrl === currentUrl && overlay) {
-    overlay.show();
+  if (!force && lastAnalyzedUrl === currentUrl && currentPage && currentSummary) {
+    getOrCreateOverlay().show();
     return;
   }
 
-  if (inFlightRun) {
-    return inFlightRun;
+  if (summaryRun) {
+    return summaryRun;
   }
 
   const task = (async () => {
     const ui = getOrCreateOverlay();
+    const page = buildPagePayload();
+
     ui.show();
-    ui.setState("loading");
 
-    const extracted = extractContent();
-
-    if (!extracted) {
+    if (!page) {
+      currentPage = null;
+      currentSummary = null;
       lastAnalyzedUrl = currentUrl;
-      ui.setState("no-content");
+      ui.setNoContent();
       return;
     }
 
-    try {
-      const result = await analyzeContent({
-        url: currentUrl,
-        title: extracted.title,
-        text: extracted.text,
-      });
+    currentPage = page;
+    currentSummary = null;
+    ui.setLoading(page.title);
 
+    try {
+      const summary = await analyzePage(page);
+      currentSummary = summary;
       lastAnalyzedUrl = currentUrl;
-      ui.setState("success", {
-        title: extracted.title,
-        standfirst: result.standfirst,
-        summary: result.summary,
-        bullets: result.bullets,
-        model: result.model,
-      });
+      ui.setReady(page, summary);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to connect to API.";
-      ui.setState("error", { error: message });
+      ui.setError(message);
     }
   })();
 
-  inFlightRun = task.finally(() => {
-    inFlightRun = null;
+  summaryRun = task.finally(() => {
+    summaryRun = null;
   });
 
-  return inFlightRun;
+  return summaryRun;
+}
+
+async function askCurrentPage(question: string): Promise<void> {
+  if (!currentPage || !currentSummary) {
+    return;
+  }
+
+  if (askRun) {
+    return askRun;
+  }
+
+  const ui = getOrCreateOverlay();
+  ui.setQuestionLoading(question);
+
+  const task = (async () => {
+    try {
+      const answer = await askPageQuestion(currentPage!, question);
+      ui.setQuestionResult(question, answer);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to answer question.";
+      ui.setQuestionError(question, message);
+    }
+  })();
+
+  askRun = task.finally(() => {
+    askRun = null;
+  });
+
+  return askRun;
+}
+
+async function deepDiveCurrentPage(): Promise<void> {
+  if (!currentPage || !currentSummary) {
+    return;
+  }
+
+  if (deepDiveRun) {
+    return deepDiveRun;
+  }
+
+  const ui = getOrCreateOverlay();
+  ui.setDeepDiveLoading();
+
+  const task = (async () => {
+    try {
+      const deepDive = await deepDivePage(currentPage!);
+      ui.setDeepDiveResult(deepDive);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to generate deep dive.";
+      ui.setDeepDiveError(message);
+    }
+  })();
+
+  deepDiveRun = task.finally(() => {
+    deepDiveRun = null;
+  });
+
+  return deepDiveRun;
 }
 
 async function applyEnabledState(enabled: boolean): Promise<void> {
@@ -85,7 +173,7 @@ async function applyEnabledState(enabled: boolean): Promise<void> {
     return;
   }
 
-  await run();
+  await runSummary();
 }
 
 function scheduleRefreshForNavigation(): void {
@@ -108,7 +196,7 @@ function scheduleRefreshForNavigation(): void {
       return;
     }
 
-    void run(true);
+    void runSummary(true);
   }, 350);
 }
 

@@ -2483,6 +2483,168 @@ module.exports = {
 (() => {
 "use strict";
 
+;// ./src/api.ts
+const API_BASE_URL = "https://internet-companion.ryuto-2007-11-27.workers.dev";
+const MAX_TEXT_LENGTH = 12000;
+async function analyzePage(page) {
+    const response = await requestCompanion({
+        mode: "summary",
+        page,
+    });
+    return response.summary;
+}
+async function askPageQuestion(page, question) {
+    const response = await requestCompanion({
+        mode: "ask",
+        page,
+        question,
+    });
+    return response.answer;
+}
+async function deepDivePage(page) {
+    const response = await requestCompanion({
+        mode: "deep-dive",
+        page,
+    });
+    return response.deepDive;
+}
+async function requestCompanion(payload) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const safePayload = {
+        ...payload,
+        question: payload.question?.trim(),
+        page: {
+            ...payload.page,
+            text: payload.page.text.slice(0, MAX_TEXT_LENGTH),
+        },
+    };
+    let response;
+    try {
+        response = await fetch(`${API_BASE_URL}/api/analyze`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(safePayload),
+            signal: controller.signal,
+        });
+    }
+    catch {
+        clearTimeout(timeout);
+        throw new Error("Network error while contacting API");
+    }
+    clearTimeout(timeout);
+    if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    try {
+        return (await response.json());
+    }
+    catch {
+        throw new Error("Invalid JSON response from API");
+    }
+}
+
+;// ./src/credibility.ts
+const HIGH_CREDIBILITY_HOSTS = new Set([
+    "apnews.com",
+    "bbc.com",
+    "bloomberg.com",
+    "economist.com",
+    "ft.com",
+    "nature.com",
+    "npr.org",
+    "nytimes.com",
+    "reuters.com",
+    "science.org",
+    "theguardian.com",
+    "washingtonpost.com",
+    "wsj.com",
+]);
+const MEDIUM_CREDIBILITY_HOSTS = new Set([
+    "blogspot.com",
+    "github.io",
+    "medium.com",
+    "quora.com",
+    "reddit.com",
+    "stackexchange.com",
+    "substack.com",
+    "wikipedia.org",
+    "wordpress.com",
+]);
+function evaluateCredibility(pageUrl, context) {
+    const url = safeParseUrl(pageUrl);
+    const host = url?.hostname.replace(/^www\./, "") || "unknown";
+    if (host.endsWith(".edu") ||
+        host.endsWith(".gov") ||
+        host.endsWith(".ac.uk") ||
+        host === "nih.gov" ||
+        host === "who.int" ||
+        host === "un.org" ||
+        HIGH_CREDIBILITY_HOSTS.has(host) ||
+        context.sourceType === "major-news") {
+        return {
+            level: "high",
+            label: "High credibility",
+            rationale: "This looks like an established newsroom, academic institution, or public-interest source.",
+            sourceType: context.sourceType,
+            host,
+        };
+    }
+    if (host.endsWith("wikipedia.org") ||
+        MEDIUM_CREDIBILITY_HOSTS.has(host) ||
+        host.includes("substack") ||
+        host.includes("medium.com")) {
+        return {
+            level: "medium",
+            label: "Medium credibility",
+            rationale: "This source is useful, but it is more community-driven or individually published, so cross-checking helps.",
+            sourceType: context.sourceType,
+            host,
+        };
+    }
+    return {
+        level: "unknown",
+        label: "Unknown credibility",
+        rationale: "The domain alone does not give a strong reliability signal, so treat it as informational rather than authoritative.",
+        sourceType: context.sourceType,
+        host,
+    };
+}
+function safeParseUrl(value) {
+    try {
+        return new URL(value);
+    }
+    catch {
+        return null;
+    }
+}
+
+// EXTERNAL MODULE: ./node_modules/@mozilla/readability/index.js
+var readability = __webpack_require__(396);
+;// ./src/extractor.ts
+
+function extractContent() {
+    try {
+        // Clone the document to avoid mutating the live DOM
+        const documentClone = document.cloneNode(true);
+        const reader = new readability.Readability(documentClone);
+        const article = reader.parse();
+        if (!article || !article.textContent?.trim()) {
+            return null;
+        }
+        return {
+            title: article.title || document.title || "",
+            text: article.textContent.trim(),
+        };
+    }
+    catch (err) {
+        console.error("[Internet Companion] Extraction failed:", err);
+        return null;
+    }
+}
+
 ;// ./src/overlay.ts
 const OVERLAY_ID = "ic-overlay-root";
 const STYLE_ID = "ic-overlay-style";
@@ -2491,18 +2653,21 @@ const MOBILE_BREAKPOINT = 768;
 const PANEL_WIDTH = 320;
 const PANEL_GAP = 24;
 class Overlay {
-    constructor() {
+    constructor(callbacks) {
         this.isVisible = false;
+        this.state = { kind: "loading" };
         this.handleResize = () => {
             if (this.isVisible) {
                 this.applyPageInset();
             }
         };
+        this.callbacks = callbacks;
         this.root = this.createRoot();
         this.panel = this.createPanel();
         this.root.appendChild(this.panel);
         document.body.appendChild(this.root);
         this.injectStyles();
+        this.render();
         window.addEventListener("resize", this.handleResize, { passive: true });
     }
     createRoot() {
@@ -2524,7 +2689,7 @@ class Overlay {
           <span class="ic-mark">IC</span>
           <div class="ic-brand-copy">
             <span class="ic-brand-name">Internet Companion</span>
-            <span class="ic-brand-tag">Reading brief</span>
+            <span class="ic-brand-tag">AI browsing companion</span>
           </div>
         </div>
         <button class="ic-close" aria-label="Close">
@@ -2560,16 +2725,15 @@ class Overlay {
       }
 
       #${OVERLAY_ID} {
-        --ic-bg: rgba(11, 17, 27, 0.96);
-        --ic-bg-soft: rgba(22, 30, 43, 0.9);
-        --ic-card: rgba(255, 248, 239, 0.07);
-        --ic-card-strong: rgba(255, 248, 239, 0.11);
-        --ic-line: rgba(255, 248, 239, 0.12);
-        --ic-text: #f6efe5;
-        --ic-muted: #d3c7b6;
-        --ic-dim: #8f9bad;
+        --ic-line: rgba(255, 247, 236, 0.12);
+        --ic-text: #f7efe5;
+        --ic-muted: #d4c7b7;
+        --ic-dim: #8e99ab;
         --ic-accent: #f1a16f;
         --ic-accent-soft: rgba(241, 161, 111, 0.18);
+        --ic-unknown: #8ea8c7;
+        --ic-medium: #f1c06f;
+        --ic-high: #74d3a0;
         --ic-shadow: 0 24px 80px rgba(1, 5, 14, 0.45);
         position: fixed;
         top: 14px;
@@ -2591,9 +2755,9 @@ class Overlay {
         flex-direction: column;
         color: var(--ic-text);
         background:
-          radial-gradient(circle at top left, rgba(241, 161, 111, 0.17), transparent 28%),
-          radial-gradient(circle at top right, rgba(125, 170, 255, 0.12), transparent 32%),
-          linear-gradient(180deg, rgba(17, 24, 36, 0.98), rgba(8, 12, 20, 0.98));
+          radial-gradient(circle at top left, rgba(241, 161, 111, 0.14), transparent 30%),
+          radial-gradient(circle at top right, rgba(125, 170, 255, 0.1), transparent 34%),
+          linear-gradient(180deg, rgba(17, 24, 36, 0.985), rgba(8, 12, 20, 0.985));
         border: 1px solid var(--ic-line);
         border-radius: 24px;
         box-shadow: var(--ic-shadow);
@@ -2617,8 +2781,8 @@ class Overlay {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-        padding: 16px 16px 14px;
+        gap: 14px;
+        padding: 15px 15px 13px;
         border-bottom: 1px solid var(--ic-line);
         background: linear-gradient(180deg, rgba(255, 248, 239, 0.05), rgba(255, 248, 239, 0));
         flex-shrink: 0;
@@ -2632,8 +2796,8 @@ class Overlay {
       }
 
       .ic-mark {
-        width: 36px;
-        height: 36px;
+        width: 34px;
+        height: 34px;
         border-radius: 12px;
         display: grid;
         place-items: center;
@@ -2652,23 +2816,23 @@ class Overlay {
       }
 
       .ic-brand-name {
-        font: 600 13px/1.1 "Avenir Next", "Trebuchet MS", sans-serif;
-        letter-spacing: 0.06em;
+        font: 600 12px/1.1 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--ic-text);
       }
 
       .ic-brand-tag {
         margin-top: 4px;
-        font: 500 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
-        letter-spacing: 0.08em;
+        font: 500 10px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
         color: var(--ic-dim);
       }
 
       .ic-close {
-        width: 36px;
-        height: 36px;
+        width: 34px;
+        height: 34px;
         border: 1px solid var(--ic-line);
         border-radius: 12px;
         display: grid;
@@ -2693,7 +2857,7 @@ class Overlay {
       .ic-body {
         flex: 1;
         overflow-y: auto;
-        padding: 14px;
+        padding: 13px;
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 248, 239, 0.18) transparent;
       }
@@ -2713,56 +2877,97 @@ class Overlay {
         gap: 12px;
       }
 
+      .ic-hero,
+      .ic-card,
+      .ic-status {
+        border: 1px solid var(--ic-line);
+        background: rgba(255, 248, 239, 0.05);
+      }
+
       .ic-hero {
         position: relative;
-        padding: 16px;
+        padding: 15px;
         border-radius: 20px;
         background:
-          linear-gradient(180deg, rgba(255, 248, 239, 0.08), rgba(255, 248, 239, 0.03)),
+          linear-gradient(180deg, rgba(255, 248, 239, 0.07), rgba(255, 248, 239, 0.03)),
           rgba(255, 248, 239, 0.03);
-        border: 1px solid rgba(255, 248, 239, 0.1);
         overflow: hidden;
       }
 
       .ic-hero::after {
         content: "";
         position: absolute;
-        top: -60px;
-        right: -40px;
-        width: 180px;
-        height: 180px;
+        top: -56px;
+        right: -34px;
+        width: 150px;
+        height: 150px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(241, 161, 111, 0.18), transparent 70%);
+        background: radial-gradient(circle, rgba(241, 161, 111, 0.14), transparent 70%);
         pointer-events: none;
       }
 
-      .ic-kicker,
-      .ic-label {
-        font: 600 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
-        letter-spacing: 0.12em;
+      .ic-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .ic-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 248, 239, 0.16);
+        background: rgba(255, 248, 239, 0.06);
+        font: 600 10px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: var(--ic-accent);
+        color: var(--ic-muted);
+      }
+
+      .ic-chip--context {
+        color: #ffd8bd;
+        background: var(--ic-accent-soft);
+        border-color: rgba(241, 161, 111, 0.2);
+      }
+
+      .ic-chip--high {
+        color: var(--ic-high);
+      }
+
+      .ic-chip--medium {
+        color: var(--ic-medium);
+      }
+
+      .ic-chip--unknown {
+        color: var(--ic-unknown);
       }
 
       .ic-title {
-        margin: 12px 0 14px;
-        font: 600 24px/1.12 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        margin: 12px 0 12px;
+        font: 600 22px/1.12 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
         text-wrap: balance;
       }
 
       .ic-standfirst {
-        position: relative;
-        max-width: 24ch;
-        font: 500 17px/1.45 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        margin: 0;
+        font: 500 16px/1.45 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
-      .ic-card {
-        padding: 15px;
+      .ic-rationale {
+        margin: 12px 0 0;
+        font: 400 12px/1.55 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: var(--ic-dim);
+      }
+
+      .ic-card,
+      .ic-status {
+        padding: 14px;
         border-radius: 18px;
-        background: var(--ic-card);
-        border: 1px solid var(--ic-line);
       }
 
       .ic-card-head {
@@ -2770,27 +2975,54 @@ class Overlay {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
 
-      .ic-chip {
+      .ic-label,
+      .ic-mini-label {
+        font: 600 10px/1.25 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ic-accent);
+      }
+
+      .ic-mini-label {
+        color: var(--ic-dim);
+      }
+
+      .ic-model-pill {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 7px 10px;
+        padding: 6px 9px;
         border-radius: 999px;
-        background: var(--ic-accent-soft);
-        border: 1px solid rgba(241, 161, 111, 0.18);
-        font: 600 11px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        border: 1px solid rgba(255, 248, 239, 0.16);
+        background: rgba(255, 248, 239, 0.05);
+        font: 600 10px/1 "Avenir Next", "Trebuchet MS", sans-serif;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: #ffd8bd;
-        white-space: nowrap;
+        color: var(--ic-dim);
       }
 
-      .ic-summary {
-        font: 400 15px/1.7 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+      .ic-summary,
+      .ic-answer-copy,
+      .ic-note {
+        font: 400 14px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
+      }
+
+      .ic-note {
+        color: var(--ic-muted);
+      }
+
+      .ic-subcard,
+      .ic-answer,
+      .ic-inline-status,
+      .ic-deep-dive-grid section {
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 248, 239, 0.1);
+        background: rgba(255, 248, 239, 0.04);
       }
 
       .ic-list {
@@ -2798,61 +3030,166 @@ class Overlay {
         margin: 0;
         padding: 0;
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
 
       .ic-list li {
         position: relative;
-        padding-left: 18px;
-        font: 400 14px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        padding-left: 16px;
+        font: 400 13px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
       }
 
       .ic-list li::before {
         content: "";
         position: absolute;
-        top: 10px;
+        top: 8px;
         left: 0;
-        width: 7px;
-        height: 7px;
+        width: 6px;
+        height: 6px;
         border-radius: 50%;
         background: linear-gradient(135deg, #ffd7b5, #f1a16f);
-        box-shadow: 0 0 0 4px rgba(241, 161, 111, 0.14);
+        box-shadow: 0 0 0 4px rgba(241, 161, 111, 0.12);
+      }
+
+      .ic-ask-form {
+        display: grid;
+        gap: 10px;
+      }
+
+      .ic-ask-input {
+        width: 100%;
+        min-height: 88px;
+        resize: vertical;
+        border: 1px solid rgba(255, 248, 239, 0.14);
+        border-radius: 14px;
+        padding: 12px 13px;
+        background: rgba(5, 9, 16, 0.32);
+        color: var(--ic-text);
+        font: 400 13px/1.5 "Avenir Next", "Trebuchet MS", sans-serif;
+        outline: none;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      .ic-ask-input:focus {
+        border-color: rgba(241, 161, 111, 0.45);
+        box-shadow: 0 0 0 3px rgba(241, 161, 111, 0.12);
+      }
+
+      .ic-ask-input::placeholder {
+        color: #738094;
+      }
+
+      .ic-button-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .ic-button,
+      .ic-secondary-button {
+        border: none;
+        border-radius: 999px;
+        padding: 10px 12px;
+        cursor: pointer;
+        font: 600 10px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+      }
+
+      .ic-button {
+        color: #112030;
+        background: linear-gradient(135deg, #ffd6b2, #f1a16f);
+      }
+
+      .ic-secondary-button {
+        color: var(--ic-text);
+        background: rgba(255, 248, 239, 0.08);
+        border: 1px solid rgba(255, 248, 239, 0.14);
+      }
+
+      .ic-button:hover,
+      .ic-secondary-button:hover {
+        transform: translateY(-1px);
+      }
+
+      .ic-button:disabled,
+      .ic-secondary-button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+        transform: none;
+      }
+
+      .ic-error-text {
+        margin-top: 10px;
+        font: 500 12px/1.5 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: #f5a6a6;
+      }
+
+      .ic-followups {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .ic-followup {
+        padding: 8px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 248, 239, 0.12);
+        background: rgba(255, 248, 239, 0.04);
+        font: 500 11px/1.35 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: var(--ic-dim);
+      }
+
+      .ic-deep-dive-grid {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .ic-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .ic-tag {
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: rgba(255, 248, 239, 0.05);
+        border: 1px solid rgba(255, 248, 239, 0.12);
+        font: 600 11px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: var(--ic-muted);
       }
 
       .ic-meta {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 8px;
       }
 
-      .ic-meta-pill,
-      .ic-meta-url {
+      .ic-meta-pill {
         display: inline-flex;
         align-items: center;
         min-width: 0;
-        padding: 10px 12px;
+        padding: 9px 10px;
         border-radius: 999px;
         border: 1px solid var(--ic-line);
         background: rgba(255, 248, 239, 0.04);
-        font: 600 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
-        letter-spacing: 0.05em;
+        font: 600 10px/1.25 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
         color: var(--ic-dim);
       }
 
-      .ic-meta-url {
-        max-width: 100%;
+      .ic-meta-pill--path {
         text-transform: none;
         letter-spacing: 0;
         overflow: hidden;
         text-overflow: ellipsis;
-      }
-
-      .ic-loading-copy {
-        margin-top: 12px;
-        font: 400 14px/1.55 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        color: var(--ic-muted);
+        max-width: 100%;
       }
 
       .ic-skeleton {
@@ -2872,36 +3209,22 @@ class Overlay {
       }
 
       .ic-skeleton-title {
-        width: 72%;
+        width: 74%;
         height: 16px;
       }
 
-      .ic-skeleton-standfirst {
-        width: 100%;
-        height: 68px;
-        border-radius: 18px;
-        margin-top: 14px;
-      }
-
-      .ic-skeleton-line {
+      .ic-skeleton-copy {
         height: 12px;
         margin-top: 12px;
       }
 
-      .ic-skeleton-line.short {
-        width: 72%;
-      }
-
-      .ic-status {
-        padding: 16px;
-        border-radius: 18px;
-        border: 1px solid var(--ic-line);
-        background: linear-gradient(180deg, rgba(255, 248, 239, 0.07), rgba(255, 248, 239, 0.03));
+      .ic-skeleton-copy.short {
+        width: 68%;
       }
 
       .ic-status-title {
         margin: 8px 0 10px;
-        font: 600 20px/1.2 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        font: 600 19px/1.2 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
       }
 
@@ -2927,7 +3250,7 @@ class Overlay {
           right: 10px;
           bottom: 10px;
           width: auto;
-          height: min(78vh, 620px);
+          height: min(82vh, 680px);
         }
 
         .ic-panel {
@@ -2936,14 +3259,6 @@ class Overlay {
 
         .ic-panel.ic-visible {
           transform: translateY(0);
-        }
-
-        .ic-title {
-          font-size: 22px;
-        }
-
-        .ic-standfirst {
-          font-size: 17px;
         }
 
         .ic-card-head {
@@ -2995,107 +3310,338 @@ class Overlay {
         this.panel.classList.remove("ic-visible");
         this.removePageInset();
     }
-    toggle() {
-        this.isVisible ? this.hide() : this.show();
+    setLoading(title) {
+        this.state = { kind: "loading", title };
+        this.render();
     }
-    setState(state, data) {
+    setError(error) {
+        this.state = { kind: "error", error };
+        this.render();
+    }
+    setNoContent(message = "This page does not look like a readable article yet, so there was not enough clean text to analyze.") {
+        this.state = { kind: "no-content", message };
+        this.render();
+    }
+    setReady(page, summary) {
+        this.state = {
+            kind: "ready",
+            data: {
+                page,
+                summary,
+                questionDraft: "",
+                questionLoading: false,
+                deepDiveLoading: false,
+            },
+        };
+        this.render();
+    }
+    setQuestionLoading(question) {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.questionDraft = question;
+        data.questionPrompt = question;
+        data.questionLoading = true;
+        data.questionError = undefined;
+        this.render();
+    }
+    setQuestionResult(question, result) {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.questionDraft = question;
+        data.questionPrompt = question;
+        data.questionLoading = false;
+        data.questionError = undefined;
+        data.questionResult = result;
+        this.render();
+    }
+    setQuestionError(question, error) {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.questionDraft = question;
+        data.questionPrompt = question;
+        data.questionLoading = false;
+        data.questionError = error;
+        this.render();
+    }
+    setDeepDiveLoading() {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.deepDiveLoading = true;
+        data.deepDiveError = undefined;
+        this.render();
+    }
+    setDeepDiveResult(result) {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.deepDiveLoading = false;
+        data.deepDiveError = undefined;
+        data.deepDive = result;
+        this.render();
+    }
+    setDeepDiveError(error) {
+        const data = this.getReadyState();
+        if (!data) {
+            return;
+        }
+        data.deepDiveLoading = false;
+        data.deepDiveError = error;
+        this.render();
+    }
+    getReadyState() {
+        return this.state.kind === "ready" ? this.state.data : null;
+    }
+    render() {
         const content = this.panel.querySelector(".ic-content");
-        switch (state) {
+        switch (this.state.kind) {
             case "loading":
-                content.innerHTML = `
-          <div class="ic-hero">
-            <p class="ic-kicker">Reading brief</p>
-            <div class="ic-skeleton ic-skeleton-title"></div>
-            <div class="ic-skeleton ic-skeleton-standfirst"></div>
-          </div>
-          <div class="ic-card">
-            <p class="ic-label">Analyzing page</p>
-            <p class="ic-loading-copy">Pulling the article into a tighter brief with the key ideas, details, and source context.</p>
-            <div class="ic-skeleton ic-skeleton-line"></div>
-            <div class="ic-skeleton ic-skeleton-line"></div>
-            <div class="ic-skeleton ic-skeleton-line short"></div>
-          </div>
-        `;
-                break;
-            case "success":
-                content.innerHTML = this.renderSuccessState(data);
+                content.innerHTML = this.renderLoadingState(this.state.title);
                 break;
             case "error":
-                content.innerHTML = this.renderStatusState("Connection issue", data?.error || "Something went wrong while generating the brief.");
+                content.innerHTML = this.renderStatusState("Connection issue", this.state.error);
                 break;
             case "no-content":
-                content.innerHTML = this.renderStatusState("No readable article", "This page does not look like a readable article yet, so there was not enough clean text to summarize.");
+                content.innerHTML = this.renderStatusState("No readable article", this.state.message);
+                break;
+            case "ready":
+                content.innerHTML = this.renderReadyState(this.state.data);
+                this.bindInteractiveElements();
                 break;
         }
     }
-    renderSuccessState(data) {
-        const title = this.escapeHtml(data?.title || document.title || "Untitled article");
-        const standfirst = this.escapeHtml(data?.standfirst || data?.summary || "");
-        const summary = this.escapeHtml(data?.summary || "");
-        const bullets = Array.isArray(data?.bullets) ? data?.bullets : [];
-        const modelLabel = this.escapeHtml(this.formatModel(data?.model));
-        const sourceHost = this.escapeHtml(this.getSourceHost());
-        const sourcePath = this.escapeHtml(this.getSourcePath());
+    bindInteractiveElements() {
+        const readyState = this.getReadyState();
+        if (!readyState) {
+            return;
+        }
+        const form = this.panel.querySelector(".ic-ask-form");
+        const input = this.panel.querySelector(".ic-ask-input");
+        const deepDiveButton = this.panel.querySelector(".ic-deep-dive-button");
+        form?.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const question = input?.value.trim() || "";
+            if (!question || readyState.questionLoading) {
+                return;
+            }
+            this.callbacks.onAsk(question);
+        });
+        input?.addEventListener("input", () => {
+            const data = this.getReadyState();
+            if (!data) {
+                return;
+            }
+            data.questionDraft = input.value;
+        });
+        deepDiveButton?.addEventListener("click", () => {
+            const data = this.getReadyState();
+            if (!data || data.deepDiveLoading) {
+                return;
+            }
+            this.callbacks.onDeepDive();
+        });
+    }
+    renderLoadingState(title) {
         return `
       <div class="ic-hero">
-        <p class="ic-kicker">Reading brief</p>
-        <h2 class="ic-title">${title}</h2>
-        <p class="ic-standfirst">${standfirst}</p>
+        <div class="ic-chip-row">
+          <span class="ic-chip ic-chip--context">Analyzing page</span>
+        </div>
+        ${title
+            ? `<h2 class="ic-title">${this.escapeHtml(title)}</h2>`
+            : `<div class="ic-skeleton ic-skeleton-title"></div>`}
+        <div class="ic-skeleton ic-skeleton-copy"></div>
+        <div class="ic-skeleton ic-skeleton-copy"></div>
+        <div class="ic-skeleton ic-skeleton-copy short"></div>
+      </div>
+      <div class="ic-card">
+        <p class="ic-label">Working</p>
+        <p class="ic-note">Detecting the kind of page, summarizing the content, and preparing deeper context for follow-up questions.</p>
+      </div>
+    `;
+    }
+    renderReadyState(data) {
+        const { page, summary } = data;
+        const questionPlaceholder = this.getQuestionPlaceholder(page.context.kind);
+        return `
+      <div class="ic-hero">
+        <div class="ic-chip-row">
+          <span class="ic-chip ic-chip--context">${this.escapeHtml(page.context.label)}</span>
+          <span class="ic-chip ${this.getCredibilityClass(page.credibility.level)}">${this.escapeHtml(page.credibility.label)}</span>
+        </div>
+        <h2 class="ic-title">${this.escapeHtml(page.title || "Untitled page")}</h2>
+        <p class="ic-standfirst">${this.escapeHtml(summary.standfirst)}</p>
+        <p class="ic-rationale">${this.escapeHtml(page.credibility.rationale)}</p>
       </div>
 
       <section class="ic-card">
         <div class="ic-card-head">
           <p class="ic-label">In short</p>
-          <span class="ic-chip">${modelLabel}</span>
+          <span class="ic-model-pill">${this.escapeHtml(this.formatModel(summary.model))}</span>
         </div>
-        <p class="ic-summary">${summary}</p>
+        <p class="ic-summary">${this.escapeHtml(summary.summary)}</p>
+        <div class="ic-subcard">
+          <p class="ic-mini-label">Context</p>
+          <p class="ic-note">${this.escapeHtml(summary.background)}</p>
+        </div>
       </section>
 
       <section class="ic-card">
         <p class="ic-label">Key points</p>
-        <ul class="ic-list">${this.renderBullets(bullets)}</ul>
+        <ul class="ic-list">${this.renderListItems(summary.bullets)}</ul>
+      </section>
+
+      <section class="ic-card">
+        <p class="ic-label">Ask AI About This Page</p>
+        <form class="ic-ask-form">
+          <textarea class="ic-ask-input" placeholder="${this.escapeHtml(questionPlaceholder)}">${this.escapeHtml(data.questionDraft)}</textarea>
+          <div class="ic-button-row">
+            <button class="ic-button" type="submit" ${data.questionLoading ? "disabled" : ""}>
+              ${data.questionLoading ? "Answering..." : "Ask"}
+            </button>
+          </div>
+        </form>
+        ${data.questionError
+            ? `<p class="ic-error-text">${this.escapeHtml(data.questionError)}</p>`
+            : ""}
+        ${this.renderQuestionResult(data)}
+      </section>
+
+      <section class="ic-card">
+        <div class="ic-card-head">
+          <p class="ic-label">Deep Dive</p>
+          <button class="ic-secondary-button ic-deep-dive-button" type="button" ${data.deepDiveLoading ? "disabled" : ""}>
+            ${data.deepDiveLoading ? "Loading..." : "Deep Dive"}
+          </button>
+        </div>
+        <p class="ic-note">Explore the topic beyond the current page with more context, related ideas, and alternative angles.</p>
+        ${data.deepDiveError
+            ? `<p class="ic-error-text">${this.escapeHtml(data.deepDiveError)}</p>`
+            : ""}
+        ${this.renderDeepDive(data)}
       </section>
 
       <div class="ic-meta">
-        <span class="ic-meta-pill">Source ${sourceHost}</span>
-        <span class="ic-meta-url">${sourcePath}</span>
+        <span class="ic-meta-pill">Source ${this.escapeHtml(page.credibility.host)}</span>
+        <span class="ic-meta-pill">${this.escapeHtml(page.credibility.sourceType)}</span>
+        <span class="ic-meta-pill ic-meta-pill--path">${this.escapeHtml(this.getSourcePath())}</span>
+      </div>
+    `;
+    }
+    renderQuestionResult(data) {
+        if (data.questionLoading) {
+            return `
+        <div class="ic-inline-status">
+          <p class="ic-mini-label">Answering</p>
+          <p class="ic-note">Reading the page against your question and generating a grounded answer.</p>
+        </div>
+      `;
+        }
+        if (!data.questionResult || !data.questionPrompt) {
+            return "";
+        }
+        return `
+      <div class="ic-answer">
+        <p class="ic-mini-label">Question</p>
+        <p class="ic-note">${this.escapeHtml(data.questionPrompt)}</p>
+        <p class="ic-mini-label" style="margin-top: 10px;">Answer</p>
+        <p class="ic-answer-copy">${this.escapeHtml(data.questionResult.answer)}</p>
+        ${data.questionResult.followUps.length > 0
+            ? `
+              <div class="ic-followups">
+                ${data.questionResult.followUps
+                .map((followUp) => `<span class="ic-followup">${this.escapeHtml(followUp)}</span>`)
+                .join("")}
+              </div>
+            `
+            : ""}
+      </div>
+    `;
+    }
+    renderDeepDive(data) {
+        if (data.deepDiveLoading) {
+            return `
+        <div class="ic-inline-status">
+          <p class="ic-mini-label">Thinking deeper</p>
+          <p class="ic-note">Pulling together background, related topics, and competing frames around this page.</p>
+        </div>
+      `;
+        }
+        if (!data.deepDive) {
+            return "";
+        }
+        return `
+      <div class="ic-deep-dive-grid">
+        <section>
+          <p class="ic-mini-label">Key insights</p>
+          <ul class="ic-list">${this.renderListItems(data.deepDive.insights)}</ul>
+        </section>
+        <section>
+          <p class="ic-mini-label">Background</p>
+          <ul class="ic-list">${this.renderListItems(data.deepDive.background)}</ul>
+        </section>
+        <section>
+          <p class="ic-mini-label">Opposing viewpoints</p>
+          <ul class="ic-list">${this.renderListItems(data.deepDive.opposingViewpoints)}</ul>
+        </section>
+        <section>
+          <p class="ic-mini-label">Related topics</p>
+          <div class="ic-tags">
+            ${data.deepDive.relatedTopics
+            .map((topic) => `<span class="ic-tag">${this.escapeHtml(topic)}</span>`)
+            .join("")}
+          </div>
+        </section>
       </div>
     `;
     }
     renderStatusState(title, copy) {
         return `
       <div class="ic-status">
-        <p class="ic-kicker">Internet Companion</p>
+        <p class="ic-label">Internet Companion</p>
         <h2 class="ic-status-title">${this.escapeHtml(title)}</h2>
         <p class="ic-status-copy">${this.escapeHtml(copy)}</p>
       </div>
     `;
     }
-    renderBullets(bullets) {
-        const safeBullets = bullets.length > 0 ? bullets : ["No key details were available for this page."];
-        return safeBullets
-            .map((bullet) => `<li>${this.escapeHtml(bullet)}</li>`)
+    renderListItems(items) {
+        const safeItems = items.length > 0 ? items : ["No details were available."];
+        return safeItems
+            .map((item) => `<li>${this.escapeHtml(item)}</li>`)
             .join("");
+    }
+    getQuestionPlaceholder(kind) {
+        switch (kind) {
+            case "news":
+                return "What is the main development here, and why does it matter?";
+            case "wikipedia":
+                return "Explain this topic in simpler terms.";
+            default:
+                return "Ask anything about this page.";
+        }
+    }
+    getCredibilityClass(level) {
+        return `ic-chip--${level}`;
     }
     formatModel(model) {
         if (!model || model === "extractive-fallback") {
-            return "Fallback brief";
+            return "Local fallback";
         }
         return `OpenAI ${model}`;
-    }
-    getSourceHost() {
-        try {
-            return new URL(window.location.href).hostname.replace(/^www\./, "");
-        }
-        catch {
-            return "source";
-        }
     }
     getSourcePath() {
         try {
             const url = new URL(window.location.href);
             const path = `${url.pathname}${url.search}` || "/";
-            return path.length > 56 ? `${path.slice(0, 55)}...` : path;
+            return path.length > 44 ? `${path.slice(0, 43)}...` : path;
         }
         catch {
             return window.location.href;
@@ -3111,82 +3657,103 @@ class Overlay {
     }
 }
 
-// EXTERNAL MODULE: ./node_modules/@mozilla/readability/index.js
-var readability = __webpack_require__(396);
-;// ./src/extractor.ts
-
-function extractContent() {
-    try {
-        // Clone the document to avoid mutating the live DOM
-        const documentClone = document.cloneNode(true);
-        const reader = new readability.Readability(documentClone);
-        const article = reader.parse();
-        if (!article || !article.textContent?.trim()) {
-            return null;
-        }
+;// ./src/pageContext.ts
+const NEWS_HOSTS = new Set([
+    "apnews.com",
+    "bbc.com",
+    "bloomberg.com",
+    "cnn.com",
+    "economist.com",
+    "ft.com",
+    "npr.org",
+    "nytimes.com",
+    "reuters.com",
+    "theatlantic.com",
+    "theguardian.com",
+    "washingtonpost.com",
+    "wsj.com",
+]);
+function detectPageContext(pageUrl, doc, extracted) {
+    const url = pageContext_safeParseUrl(pageUrl);
+    const host = url?.hostname.replace(/^www\./, "") || "";
+    if (host.endsWith("wikipedia.org") || url?.pathname.startsWith("/wiki/")) {
         return {
-            title: article.title || document.title || "",
-            text: article.textContent.trim(),
+            kind: "wikipedia",
+            label: "Wikipedia",
+            sourceType: "encyclopedia",
+            promptHint: "Explain the concept in simpler terms and call out the key figures, dates, or events a reader should remember.",
         };
     }
-    catch (err) {
-        console.error("[Internet Companion] Extraction failed:", err);
-        return null;
+    if (isNewsLikePage(host, doc, extracted)) {
+        return {
+            kind: "news",
+            label: "News Article",
+            sourceType: NEWS_HOSTS.has(host) ? "major-news" : "news-article",
+            promptHint: "Summarize the key points, explain the background context, and make the current development easy to follow.",
+        };
     }
-}
-
-;// ./src/api.ts
-const API_BASE_URL = "https://internet-companion.ryuto-2007-11-27.workers.dev";
-const MAX_TEXT_LENGTH = 12000;
-async function analyzeContent(payload) {
-    const safePayload = {
-        ...payload,
-        text: payload.text.slice(0, MAX_TEXT_LENGTH),
+    return {
+        kind: "general",
+        label: "General Page",
+        sourceType: "general-web",
+        promptHint: "Summarize the main ideas, explain what matters most, and keep the response grounded in the page itself.",
     };
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
-    let response;
+}
+function isNewsLikePage(host, doc, extracted) {
+    if (NEWS_HOSTS.has(host)) {
+        return true;
+    }
+    const metaOgType = doc
+        .querySelector('meta[property="og:type"]')
+        ?.getAttribute("content")
+        ?.toLowerCase() || "";
+    const parselyType = doc
+        .querySelector('meta[name="parsely-type"]')
+        ?.getAttribute("content")
+        ?.toLowerCase() || "";
+    const hasArticleTag = Boolean(doc.querySelector("article"));
+    const hasTimeTag = Boolean(doc.querySelector('time, meta[property="article:published_time"], meta[name="article:published_time"]'));
+    const longRead = extracted.text.length > 2200;
+    return (metaOgType === "article" ||
+        parselyType === "post" ||
+        (hasArticleTag && hasTimeTag) ||
+        (hasArticleTag && longRead));
+}
+function pageContext_safeParseUrl(value) {
     try {
-        response = await fetch(`${API_BASE_URL}/api/analyze`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(safePayload),
-            signal: controller.signal,
-        });
-    }
-    catch (err) {
-        clearTimeout(timeout);
-        throw new Error("Network error while contacting API");
-    }
-    clearTimeout(timeout);
-    if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-    let data;
-    try {
-        data = await response.json();
+        return new URL(value);
     }
     catch {
-        throw new Error("Invalid JSON response from API");
+        return null;
     }
-    return data;
 }
 
 ;// ./src/content.ts
 
 
 
+
+
 const ENABLED_KEY = "icEnabled";
 let overlay = null;
 let isEnabled = false;
-let inFlightRun = null;
+let summaryRun = null;
+let askRun = null;
+let deepDiveRun = null;
 let lastAnalyzedUrl = null;
 let scheduledUrlRefresh = null;
+let currentPage = null;
+let currentSummary = null;
 function getOrCreateOverlay() {
     if (!overlay) {
-        overlay = new Overlay();
+        overlay = new Overlay({
+            onAsk: (question) => {
+                void askCurrentPage(question);
+            },
+            onDeepDive: () => {
+                void deepDiveCurrentPage();
+            },
+        });
     }
     return overlay;
 }
@@ -3194,49 +3761,107 @@ async function getEnabledState() {
     const stored = await chrome.storage.local.get({ [ENABLED_KEY]: true });
     return stored[ENABLED_KEY] !== false;
 }
-async function run(force = false) {
+function buildPagePayload() {
+    const extracted = extractContent();
+    if (!extracted) {
+        return null;
+    }
+    const context = detectPageContext(window.location.href, document, extracted);
+    const credibility = evaluateCredibility(window.location.href, context);
+    return {
+        url: window.location.href,
+        title: extracted.title || document.title || "Untitled page",
+        text: extracted.text,
+        context,
+        credibility,
+    };
+}
+async function runSummary(force = false) {
     const currentUrl = window.location.href;
-    if (!force && lastAnalyzedUrl === currentUrl && overlay) {
-        overlay.show();
+    if (!force && lastAnalyzedUrl === currentUrl && currentPage && currentSummary) {
+        getOrCreateOverlay().show();
         return;
     }
-    if (inFlightRun) {
-        return inFlightRun;
+    if (summaryRun) {
+        return summaryRun;
     }
     const task = (async () => {
         const ui = getOrCreateOverlay();
+        const page = buildPagePayload();
         ui.show();
-        ui.setState("loading");
-        const extracted = extractContent();
-        if (!extracted) {
+        if (!page) {
+            currentPage = null;
+            currentSummary = null;
             lastAnalyzedUrl = currentUrl;
-            ui.setState("no-content");
+            ui.setNoContent();
             return;
         }
+        currentPage = page;
+        currentSummary = null;
+        ui.setLoading(page.title);
         try {
-            const result = await analyzeContent({
-                url: currentUrl,
-                title: extracted.title,
-                text: extracted.text,
-            });
+            const summary = await analyzePage(page);
+            currentSummary = summary;
             lastAnalyzedUrl = currentUrl;
-            ui.setState("success", {
-                title: extracted.title,
-                standfirst: result.standfirst,
-                summary: result.summary,
-                bullets: result.bullets,
-                model: result.model,
-            });
+            ui.setReady(page, summary);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : "Failed to connect to API.";
-            ui.setState("error", { error: message });
+            ui.setError(message);
         }
     })();
-    inFlightRun = task.finally(() => {
-        inFlightRun = null;
+    summaryRun = task.finally(() => {
+        summaryRun = null;
     });
-    return inFlightRun;
+    return summaryRun;
+}
+async function askCurrentPage(question) {
+    if (!currentPage || !currentSummary) {
+        return;
+    }
+    if (askRun) {
+        return askRun;
+    }
+    const ui = getOrCreateOverlay();
+    ui.setQuestionLoading(question);
+    const task = (async () => {
+        try {
+            const answer = await askPageQuestion(currentPage, question);
+            ui.setQuestionResult(question, answer);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to answer question.";
+            ui.setQuestionError(question, message);
+        }
+    })();
+    askRun = task.finally(() => {
+        askRun = null;
+    });
+    return askRun;
+}
+async function deepDiveCurrentPage() {
+    if (!currentPage || !currentSummary) {
+        return;
+    }
+    if (deepDiveRun) {
+        return deepDiveRun;
+    }
+    const ui = getOrCreateOverlay();
+    ui.setDeepDiveLoading();
+    const task = (async () => {
+        try {
+            const deepDive = await deepDivePage(currentPage);
+            ui.setDeepDiveResult(deepDive);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to generate deep dive.";
+            ui.setDeepDiveError(message);
+        }
+    })();
+    deepDiveRun = task.finally(() => {
+        deepDiveRun = null;
+    });
+    return deepDiveRun;
 }
 async function applyEnabledState(enabled) {
     isEnabled = enabled;
@@ -3244,7 +3869,7 @@ async function applyEnabledState(enabled) {
         overlay?.hide();
         return;
     }
-    await run();
+    await runSummary();
 }
 function scheduleRefreshForNavigation() {
     if (!isEnabled) {
@@ -3261,7 +3886,7 @@ function scheduleRefreshForNavigation() {
         if (window.location.href === lastAnalyzedUrl) {
             return;
         }
-        void run(true);
+        void runSummary(true);
     }, 350);
 }
 function watchUrlChanges() {
