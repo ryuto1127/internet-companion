@@ -352,12 +352,16 @@ export class Overlay {
         margin: 0;
         font: 500 16px/1.45 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 
       .ic-rationale {
         margin: 12px 0 0;
         font: 400 12px/1.55 "Avenir Next", "Trebuchet MS", sans-serif;
         color: var(--ic-dim);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 
       .ic-card,
@@ -404,6 +408,8 @@ export class Overlay {
       .ic-note {
         font: 400 14px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-text);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 
       .ic-note {
@@ -434,6 +440,7 @@ export class Overlay {
         padding-left: 16px;
         font: 400 13px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
+        overflow-wrap: anywhere;
       }
 
       .ic-list li::before {
@@ -627,6 +634,8 @@ export class Overlay {
       .ic-status-copy {
         font: 400 14px/1.58 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
         color: var(--ic-muted);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 
       @keyframes ic-shimmer {
@@ -759,6 +768,7 @@ export class Overlay {
     data.questionPrompt = question;
     data.questionLoading = true;
     data.questionError = undefined;
+    data.questionResult = undefined;
     this.render();
   }
 
@@ -786,6 +796,7 @@ export class Overlay {
     data.questionPrompt = question;
     data.questionLoading = false;
     data.questionError = error;
+    data.questionResult = undefined;
     this.render();
   }
 
@@ -863,15 +874,18 @@ export class Overlay {
     const input = this.panel.querySelector(".ic-ask-input") as HTMLTextAreaElement | null;
     const deepDiveButton = this.panel.querySelector(".ic-deep-dive-button");
 
-    form?.addEventListener("submit", (event) => {
-      event.preventDefault();
-
+    const submitQuestion = (): void => {
       const question = input?.value.trim() || "";
       if (!question || readyState.questionLoading) {
         return;
       }
 
       this.callbacks.onAsk(question);
+    };
+
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitQuestion();
     });
 
     input?.addEventListener("input", () => {
@@ -881,6 +895,15 @@ export class Overlay {
       }
 
       data.questionDraft = input.value;
+    });
+
+    input?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) {
+        return;
+      }
+
+      event.preventDefault();
+      submitQuestion();
     });
 
     deepDiveButton?.addEventListener("click", () => {
@@ -950,13 +973,14 @@ export class Overlay {
       <section class="ic-card">
         <p class="ic-label">Ask AI About This Page</p>
         <form class="ic-ask-form">
-          <textarea class="ic-ask-input" placeholder="${this.escapeHtml(questionPlaceholder)}">${this.escapeHtml(data.questionDraft)}</textarea>
+          <textarea class="ic-ask-input" placeholder="${this.escapeHtml(questionPlaceholder)}" aria-label="Ask AI about this page">${this.escapeHtml(data.questionDraft)}</textarea>
           <div class="ic-button-row">
             <button class="ic-button" type="submit" ${data.questionLoading ? "disabled" : ""}>
               ${data.questionLoading ? "Answering..." : "Ask"}
             </button>
           </div>
         </form>
+        <p class="ic-rationale">Press Ctrl+Enter or Cmd+Enter to ask without leaving the keyboard.</p>
         ${
           data.questionError
             ? `<p class="ic-error-text">${this.escapeHtml(data.questionError)}</p>`
