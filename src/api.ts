@@ -9,9 +9,7 @@ export interface AnalyzeResponse {
 }
 
 const API_BASE_URL =
-  process.env.NODE_ENV === "development"
-    ? "http://localhost:3000"
-    : "https://internet-companion.ryuto-2007-11-27.workers.dev/";
+  "https://internet-companion.ryuto-2007-11-27.workers.dev";
 
 const MAX_TEXT_LENGTH = 5000;
 
@@ -19,7 +17,7 @@ export async function analyzeContent(
   payload: AnalyzeRequest
 ): Promise<AnalyzeResponse> {
 
-  const safePayload = {
+  const safePayload: AnalyzeRequest = {
     ...payload,
     text: payload.text.slice(0, MAX_TEXT_LENGTH),
   };
@@ -27,14 +25,21 @@ export async function analyzeContent(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
-  const response = await fetch(`${API_BASE_URL}/api/analyze`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(safePayload),
-    signal: controller.signal,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/analyze`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(safePayload),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    throw new Error("Network error while contacting API");
+  }
 
   clearTimeout(timeout);
 
