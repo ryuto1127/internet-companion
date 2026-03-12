@@ -418,6 +418,7 @@ export class Overlay {
 
       .ic-subcard,
       .ic-answer,
+      .ic-ask-shell,
       .ic-inline-status,
       .ic-deep-dive-grid section {
         margin-top: 12px;
@@ -460,9 +461,21 @@ export class Overlay {
         gap: 10px;
       }
 
+      .ic-section-copy {
+        margin: -2px 0 0;
+        font: 400 12px/1.55 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: var(--ic-dim);
+      }
+
+      .ic-ask-shell {
+        background:
+          linear-gradient(180deg, rgba(8, 15, 28, 0.76), rgba(255, 248, 239, 0.03)),
+          rgba(255, 248, 239, 0.03);
+      }
+
       .ic-ask-input {
         width: 100%;
-        min-height: 88px;
+        min-height: 94px;
         resize: vertical;
         border: 1px solid rgba(255, 248, 239, 0.14);
         border-radius: 14px;
@@ -489,13 +502,21 @@ export class Overlay {
         flex-wrap: wrap;
       }
 
+      .ic-form-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       .ic-button,
       .ic-secondary-button {
         border: none;
         border-radius: 999px;
-        padding: 10px 12px;
+        padding: 11px 14px;
         cursor: pointer;
-        font: 600 10px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        font: 700 11px/1 "Avenir Next", "Trebuchet MS", sans-serif;
         letter-spacing: 0.1em;
         text-transform: uppercase;
         transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
@@ -524,6 +545,12 @@ export class Overlay {
         transform: none;
       }
 
+      .ic-shortcut {
+        margin: 0;
+        font: 500 11px/1.45 "Avenir Next", "Trebuchet MS", sans-serif;
+        color: var(--ic-dim);
+      }
+
       .ic-error-text {
         margin-top: 10px;
         font: 500 12px/1.5 "Avenir Next", "Trebuchet MS", sans-serif;
@@ -538,12 +565,48 @@ export class Overlay {
       }
 
       .ic-followup {
-        padding: 8px 10px;
+        display: inline-flex;
+        align-items: center;
+        width: 100%;
+        padding: 11px 13px;
         border-radius: 999px;
         border: 1px solid rgba(255, 248, 239, 0.12);
-        background: rgba(255, 248, 239, 0.04);
-        font: 500 11px/1.35 "Avenir Next", "Trebuchet MS", sans-serif;
+        background: rgba(255, 248, 239, 0.05);
+        font: 600 11px/1.35 "Avenir Next", "Trebuchet MS", sans-serif;
         color: var(--ic-dim);
+        cursor: pointer;
+        text-align: left;
+        transition:
+          transform 0.18s ease,
+          background 0.18s ease,
+          color 0.18s ease,
+          border-color 0.18s ease;
+      }
+
+      .ic-followup:hover {
+        transform: translateY(-1px);
+        color: var(--ic-text);
+        background: rgba(241, 161, 111, 0.12);
+        border-color: rgba(241, 161, 111, 0.28);
+      }
+
+      .ic-followup:focus-visible {
+        outline: 2px solid rgba(241, 161, 111, 0.45);
+        outline-offset: 2px;
+      }
+
+      .ic-answer-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .ic-answer-question {
+        margin: 0;
+        font: 500 15px/1.55 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-muted);
       }
 
       .ic-deep-dive-grid {
@@ -668,6 +731,10 @@ export class Overlay {
 
         .ic-card-head {
           flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .ic-form-footer {
           align-items: flex-start;
         }
       }
@@ -873,6 +940,9 @@ export class Overlay {
     const form = this.panel.querySelector(".ic-ask-form");
     const input = this.panel.querySelector(".ic-ask-input") as HTMLTextAreaElement | null;
     const deepDiveButton = this.panel.querySelector(".ic-deep-dive-button");
+    const followUpButtons = Array.from(
+      this.panel.querySelectorAll<HTMLButtonElement>(".ic-followup")
+    );
 
     const submitQuestion = (): void => {
       const question = input?.value.trim() || "";
@@ -904,6 +974,30 @@ export class Overlay {
 
       event.preventDefault();
       submitQuestion();
+    });
+
+    followUpButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!input) {
+          return;
+        }
+
+        const question = button.dataset.followup?.trim() || "";
+        if (!question) {
+          return;
+        }
+
+        input.value = question;
+
+        const data = this.getReadyState();
+        if (data) {
+          data.questionDraft = question;
+        }
+
+        input.focus();
+        input.setSelectionRange(question.length, question.length);
+        input.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
     });
 
     deepDiveButton?.addEventListener("click", () => {
@@ -971,16 +1065,24 @@ export class Overlay {
       </section>
 
       <section class="ic-card">
-        <p class="ic-label">Ask AI About This Page</p>
-        <form class="ic-ask-form">
-          <textarea class="ic-ask-input" placeholder="${this.escapeHtml(questionPlaceholder)}" aria-label="Ask AI about this page">${this.escapeHtml(data.questionDraft)}</textarea>
-          <div class="ic-button-row">
-            <button class="ic-button" type="submit" ${data.questionLoading ? "disabled" : ""}>
-              ${data.questionLoading ? "Answering..." : "Ask"}
-            </button>
-          </div>
-        </form>
-        <p class="ic-rationale">Press Ctrl+Enter or Cmd+Enter to ask without leaving the keyboard.</p>
+        <div class="ic-card-head">
+          <p class="ic-label">Ask AI About This Page</p>
+          <span class="ic-model-pill">${this.escapeHtml(this.formatModel(data.questionResult?.model || summary.model))}</span>
+        </div>
+        <p class="ic-section-copy">Ask a specific question grounded in the page. If the detail is not actually on the page, the answer should say that clearly.</p>
+        <div class="ic-ask-shell">
+          <form class="ic-ask-form">
+            <textarea class="ic-ask-input" placeholder="${this.escapeHtml(questionPlaceholder)}" aria-label="Ask AI about this page">${this.escapeHtml(data.questionDraft)}</textarea>
+            <div class="ic-form-footer">
+              <div class="ic-button-row">
+                <button class="ic-button" type="submit" ${data.questionLoading ? "disabled" : ""}>
+                  ${data.questionLoading ? "Answering..." : "Ask"}
+                </button>
+              </div>
+              <p class="ic-shortcut">Ctrl+Enter or Cmd+Enter</p>
+            </div>
+          </form>
+        </div>
         ${
           data.questionError
             ? `<p class="ic-error-text">${this.escapeHtml(data.questionError)}</p>`
@@ -1029,8 +1131,11 @@ export class Overlay {
 
     return `
       <div class="ic-answer">
-        <p class="ic-mini-label">Question</p>
-        <p class="ic-note">${this.escapeHtml(data.questionPrompt)}</p>
+        <div class="ic-answer-head">
+          <p class="ic-mini-label">Latest answer</p>
+          <span class="ic-model-pill">${this.escapeHtml(this.formatModel(data.questionResult.model))}</span>
+        </div>
+        <p class="ic-answer-question">${this.escapeHtml(data.questionPrompt)}</p>
         <p class="ic-mini-label" style="margin-top: 10px;">Answer</p>
         <p class="ic-answer-copy">${this.escapeHtml(data.questionResult.answer)}</p>
         ${
@@ -1040,7 +1145,7 @@ export class Overlay {
                 ${data.questionResult.followUps
                   .map(
                     (followUp) =>
-                      `<span class="ic-followup">${this.escapeHtml(followUp)}</span>`
+                      `<button class="ic-followup" type="button" data-followup="${this.escapeHtml(followUp)}">${this.escapeHtml(followUp)}</button>`
                   )
                   .join("")}
               </div>
