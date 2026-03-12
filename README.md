@@ -48,7 +48,9 @@ This compiles TypeScript and bundles `@mozilla/readability` into `dist/content.j
 
 ## Backend API
 
-The extension POSTs to `http://localhost:3000/api/analyze`.
+The extension currently POSTs to:
+
+`https://internet-companion.ryuto-2007-11-27.workers.dev/api/analyze`
 
 **Request:**
 ```json
@@ -66,33 +68,17 @@ The extension POSTs to `http://localhost:3000/api/analyze`.
 }
 ```
 
-### Example Backend (Node.js / Express)
-
-```js
-import express from "express";
-import cors from "cors";
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-app.post("/api/analyze", async (req, res) => {
-  const { url, title, text } = req.body;
-
-  // Call your LLM or summarization service here
-  const summary = await summarize(text);
-
-  res.json({ summary });
-});
-
-app.listen(3000, () => console.log("API running on http://localhost:3000"));
-```
+The worker implementation lives in `worker.ts` and already includes CORS headers for browser requests.
 
 ## Changing the API Endpoint
 
-Edit `API_BASE_URL` in:
-- `src/api.ts` (TypeScript source)
-- `dist/content.js` line 7 (pre-built, for immediate use)
+Edit `API_BASE_URL` in `src/api.ts`, then rebuild:
+
+```bash
+npm run build
+```
+
+That regenerates `dist/content.js`, which is the file Chrome actually loads.
 
 ## Usage
 
