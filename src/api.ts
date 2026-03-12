@@ -11,7 +11,7 @@ export interface AnalyzeResponse {
 const API_BASE_URL =
   process.env.NODE_ENV === "development"
     ? "http://localhost:3000"
-    : "https://internet-companion-api.workers.dev";
+    : "https://internet-companion.ryuto-2007-11-27.workers.dev/";
 
 const MAX_TEXT_LENGTH = 5000;
 
