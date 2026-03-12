@@ -2485,6 +2485,7 @@ module.exports = {
 
 ;// ./src/overlay.ts
 const OVERLAY_ID = "ic-overlay-root";
+const STYLE_ID = "ic-overlay-style";
 class Overlay {
     constructor() {
         this.isVisible = false;
@@ -2496,27 +2497,29 @@ class Overlay {
     }
     createRoot() {
         const existing = document.getElementById(OVERLAY_ID);
-        if (existing)
+        if (existing) {
             existing.remove();
+        }
         const root = document.createElement("div");
         root.id = OVERLAY_ID;
         return root;
     }
     createPanel() {
-        const panel = document.createElement("div");
+        const panel = document.createElement("aside");
         panel.className = "ic-panel";
+        panel.setAttribute("aria-live", "polite");
         panel.innerHTML = `
       <div class="ic-header">
-        <span class="ic-logo">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M5 8h6M8 5v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Internet Companion
-        </span>
+        <div class="ic-brand">
+          <span class="ic-mark">IC</span>
+          <div class="ic-brand-copy">
+            <span class="ic-brand-name">Internet Companion</span>
+            <span class="ic-brand-tag">Reading brief</span>
+          </div>
+        </div>
         <button class="ic-close" aria-label="Close">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </button>
       </div>
@@ -2530,216 +2533,405 @@ class Overlay {
         return panel;
     }
     injectStyles() {
+        document.getElementById(STYLE_ID)?.remove();
         const style = document.createElement("style");
+        style.id = STYLE_ID;
         style.textContent = `
       #${OVERLAY_ID} {
+        --ic-bg: rgba(11, 17, 27, 0.96);
+        --ic-bg-soft: rgba(22, 30, 43, 0.9);
+        --ic-card: rgba(255, 248, 239, 0.07);
+        --ic-card-strong: rgba(255, 248, 239, 0.11);
+        --ic-line: rgba(255, 248, 239, 0.12);
+        --ic-text: #f6efe5;
+        --ic-muted: #d3c7b6;
+        --ic-dim: #8f9bad;
+        --ic-accent: #f1a16f;
+        --ic-accent-soft: rgba(241, 161, 111, 0.18);
+        --ic-shadow: 0 24px 80px rgba(1, 5, 14, 0.45);
         position: fixed;
-        top: 0;
-        right: 0;
-        height: 100vh;
+        top: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: min(440px, calc(100vw - 24px));
         z-index: 2147483647;
-        font-family: 'Georgia', 'Times New Roman', serif;
         pointer-events: none;
       }
 
       #${OVERLAY_ID} * {
         box-sizing: border-box;
-        margin: 0;
-        padding: 0;
       }
 
       .ic-panel {
-        position: relative;
-        width: 340px;
+        width: 100%;
         height: 100%;
-        background: #0f0f0f;
-        color: #e8e4dc;
-        border-left: 1px solid #2a2a2a;
         display: flex;
         flex-direction: column;
-        transform: translateX(100%);
-        transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-        pointer-events: all;
+        color: var(--ic-text);
+        background:
+          radial-gradient(circle at top left, rgba(241, 161, 111, 0.17), transparent 28%),
+          radial-gradient(circle at top right, rgba(125, 170, 255, 0.12), transparent 32%),
+          linear-gradient(180deg, rgba(17, 24, 36, 0.98), rgba(8, 12, 20, 0.98));
+        border: 1px solid var(--ic-line);
+        border-radius: 28px;
+        box-shadow: var(--ic-shadow);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         overflow: hidden;
+        pointer-events: all;
+        transform: translateX(108%);
+        opacity: 0;
+        transition:
+          transform 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+          opacity 0.28s ease;
       }
 
       .ic-panel.ic-visible {
         transform: translateX(0);
+        opacity: 1;
       }
 
       .ic-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 16px 20px;
-        border-bottom: 1px solid #1e1e1e;
+        gap: 16px;
+        padding: 18px 20px 16px;
+        border-bottom: 1px solid var(--ic-line);
+        background: linear-gradient(180deg, rgba(255, 248, 239, 0.05), rgba(255, 248, 239, 0));
         flex-shrink: 0;
       }
 
-      .ic-logo {
+      .ic-brand {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 11px;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .ic-mark {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        font: 700 12px/1 "Avenir Next", "Trebuchet MS", sans-serif;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #666;
-        font-family: 'Courier New', monospace;
+        color: #101722;
+        background: linear-gradient(135deg, #ffd7b5, #f1a16f);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      }
+
+      .ic-brand-copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .ic-brand-name {
+        font: 600 13px/1.1 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ic-text);
+      }
+
+      .ic-brand-tag {
+        margin-top: 4px;
+        font: 500 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ic-dim);
       }
 
       .ic-close {
-        background: none;
-        border: none;
-        color: #444;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--ic-line);
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        color: var(--ic-muted);
+        background: rgba(255, 248, 239, 0.04);
         cursor: pointer;
-        padding: 4px;
-        display: flex;
-        align-items: center;
-        transition: color 0.15s;
-        border-radius: 3px;
+        transition:
+          transform 0.18s ease,
+          background 0.18s ease,
+          color 0.18s ease,
+          border-color 0.18s ease;
       }
 
       .ic-close:hover {
-        color: #e8e4dc;
+        transform: translateY(-1px);
+        color: var(--ic-text);
+        background: rgba(255, 248, 239, 0.09);
+        border-color: rgba(255, 248, 239, 0.2);
       }
 
       .ic-body {
         flex: 1;
         overflow-y: auto;
-        padding: 24px 20px;
+        padding: 18px;
         scrollbar-width: thin;
-        scrollbar-color: #2a2a2a #0f0f0f;
+        scrollbar-color: rgba(255, 248, 239, 0.18) transparent;
       }
 
       .ic-body::-webkit-scrollbar {
-        width: 4px;
-      }
-
-      .ic-body::-webkit-scrollbar-track {
-        background: #0f0f0f;
+        width: 7px;
       }
 
       .ic-body::-webkit-scrollbar-thumb {
-        background: #2a2a2a;
-        border-radius: 2px;
+        background: rgba(255, 248, 239, 0.16);
+        border-radius: 999px;
       }
 
       .ic-content {
-        line-height: 1.7;
-      }
-
-      /* Loading state */
-      .ic-loading {
         display: flex;
         flex-direction: column;
+        gap: 14px;
+      }
+
+      .ic-hero {
+        position: relative;
+        padding: 20px;
+        border-radius: 24px;
+        background:
+          linear-gradient(180deg, rgba(255, 248, 239, 0.08), rgba(255, 248, 239, 0.03)),
+          rgba(255, 248, 239, 0.03);
+        border: 1px solid rgba(255, 248, 239, 0.1);
+        overflow: hidden;
+      }
+
+      .ic-hero::after {
+        content: "";
+        position: absolute;
+        top: -60px;
+        right: -40px;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(241, 161, 111, 0.18), transparent 70%);
+        pointer-events: none;
+      }
+
+      .ic-kicker,
+      .ic-label {
+        font: 600 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ic-accent);
+      }
+
+      .ic-title {
+        margin: 12px 0 14px;
+        font: 600 28px/1.12 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-text);
+        text-wrap: balance;
+      }
+
+      .ic-standfirst {
+        position: relative;
+        max-width: 28ch;
+        font: 500 20px/1.4 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-muted);
+      }
+
+      .ic-card {
+        padding: 18px;
+        border-radius: 22px;
+        background: var(--ic-card);
+        border: 1px solid var(--ic-line);
+      }
+
+      .ic-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .ic-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: var(--ic-accent-soft);
+        border: 1px solid rgba(241, 161, 111, 0.18);
+        font: 600 11px/1 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #ffd8bd;
+        white-space: nowrap;
+      }
+
+      .ic-summary {
+        font: 400 17px/1.75 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-text);
+      }
+
+      .ic-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
         gap: 12px;
       }
 
-      .ic-label {
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: #444;
-        margin-bottom: 4px;
+      .ic-list li {
+        position: relative;
+        padding-left: 18px;
+        font: 400 16px/1.6 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-muted);
       }
 
-      .ic-spinner {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        color: #555;
-        font-size: 13px;
-        font-family: 'Courier New', monospace;
-      }
-
-      .ic-dots {
-        display: flex;
-        gap: 4px;
-      }
-
-      .ic-dot {
-        width: 4px;
-        height: 4px;
-        background: #555;
+      .ic-list li::before {
+        content: "";
+        position: absolute;
+        top: 10px;
+        left: 0;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
-        animation: ic-pulse 1.2s ease-in-out infinite;
+        background: linear-gradient(135deg, #ffd7b5, #f1a16f);
+        box-shadow: 0 0 0 4px rgba(241, 161, 111, 0.14);
       }
 
-      .ic-dot:nth-child(2) { animation-delay: 0.2s; }
-      .ic-dot:nth-child(3) { animation-delay: 0.4s; }
-
-      @keyframes ic-pulse {
-        0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-        40% { opacity: 1; transform: scale(1); }
+      .ic-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
       }
 
-      /* Summary */
-      .ic-summary-label {
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-        letter-spacing: 0.12em;
+      .ic-meta-pill,
+      .ic-meta-url {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        padding: 10px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--ic-line);
+        background: rgba(255, 248, 239, 0.04);
+        font: 600 11px/1.2 "Avenir Next", "Trebuchet MS", sans-serif;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: #444;
-        margin-bottom: 16px;
+        color: var(--ic-dim);
       }
 
-      .ic-summary-text {
-        font-size: 15px;
-        line-height: 1.75;
-        color: #c8c4bc;
-        font-weight: 400;
+      .ic-meta-url {
+        max-width: 100%;
+        text-transform: none;
+        letter-spacing: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .ic-divider {
-        width: 24px;
-        height: 1px;
-        background: #2a2a2a;
-        margin: 20px 0;
+      .ic-loading-copy {
+        margin-top: 12px;
+        font: 400 16px/1.6 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-muted);
       }
 
-      .ic-url {
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-        color: #333;
-        word-break: break-all;
-        line-height: 1.5;
+      .ic-skeleton {
+        position: relative;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 248, 239, 0.08);
       }
 
-      /* Error state */
-      .ic-error {
-        color: #7a3f3f;
-        font-size: 13px;
-        font-family: 'Courier New', monospace;
-        line-height: 1.6;
+      .ic-skeleton::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+        animation: ic-shimmer 1.4s infinite;
       }
 
-      .ic-error-icon {
-        font-size: 20px;
-        margin-bottom: 12px;
-        display: block;
+      .ic-skeleton-title {
+        width: 72%;
+        height: 16px;
       }
 
-      /* No content state */
-      .ic-empty {
-        color: #444;
-        font-size: 13px;
-        font-family: 'Courier New', monospace;
-        line-height: 1.6;
+      .ic-skeleton-standfirst {
+        width: 100%;
+        height: 68px;
+        border-radius: 18px;
+        margin-top: 14px;
       }
 
-      .ic-empty-icon {
-        font-size: 20px;
-        margin-bottom: 12px;
-        display: block;
-        opacity: 0.4;
+      .ic-skeleton-line {
+        height: 12px;
+        margin-top: 12px;
+      }
+
+      .ic-skeleton-line.short {
+        width: 72%;
+      }
+
+      .ic-status {
+        padding: 18px;
+        border-radius: 22px;
+        border: 1px solid var(--ic-line);
+        background: linear-gradient(180deg, rgba(255, 248, 239, 0.07), rgba(255, 248, 239, 0.03));
+      }
+
+      .ic-status-title {
+        margin: 8px 0 10px;
+        font: 600 22px/1.2 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-text);
+      }
+
+      .ic-status-copy {
+        font: 400 16px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ic-muted);
+      }
+
+      @keyframes ic-shimmer {
+        100% {
+          transform: translateX(100%);
+        }
+      }
+
+      @media (max-width: 768px) {
+        #${OVERLAY_ID} {
+          top: auto;
+          left: 10px;
+          right: 10px;
+          bottom: 10px;
+          width: auto;
+          height: min(78vh, 620px);
+        }
+
+        .ic-panel {
+          transform: translateY(108%);
+        }
+
+        .ic-panel.ic-visible {
+          transform: translateY(0);
+        }
+
+        .ic-title {
+          font-size: 24px;
+        }
+
+        .ic-standfirst {
+          font-size: 18px;
+        }
+
+        .ic-card-head {
+          flex-direction: column;
+          align-items: flex-start;
+        }
       }
     `;
-        document.head.appendChild(style);
+        (document.head || document.documentElement).appendChild(style);
     }
     show() {
-        if (this.isVisible)
+        if (this.isVisible) {
             return;
+        }
         this.isVisible = true;
         requestAnimationFrame(() => {
             this.panel.classList.add("ic-visible");
@@ -2757,42 +2949,102 @@ class Overlay {
         switch (state) {
             case "loading":
                 content.innerHTML = `
-          <div class="ic-loading">
-            <div class="ic-spinner">
-              <div class="ic-dots">
-                <div class="ic-dot"></div>
-                <div class="ic-dot"></div>
-                <div class="ic-dot"></div>
-              </div>
-              Analyzing
-            </div>
+          <div class="ic-hero">
+            <p class="ic-kicker">Reading brief</p>
+            <div class="ic-skeleton ic-skeleton-title"></div>
+            <div class="ic-skeleton ic-skeleton-standfirst"></div>
+          </div>
+          <div class="ic-card">
+            <p class="ic-label">Analyzing page</p>
+            <p class="ic-loading-copy">Pulling the article into a tighter brief with the key ideas, details, and source context.</p>
+            <div class="ic-skeleton ic-skeleton-line"></div>
+            <div class="ic-skeleton ic-skeleton-line"></div>
+            <div class="ic-skeleton ic-skeleton-line short"></div>
           </div>
         `;
                 break;
             case "success":
-                content.innerHTML = `
-          <p class="ic-summary-label">Summary</p>
-          <p class="ic-summary-text">${this.escapeHtml(data?.summary ?? "")}</p>
-          <div class="ic-divider"></div>
-          <p class="ic-url">${this.escapeHtml(window.location.href)}</p>
-        `;
+                content.innerHTML = this.renderSuccessState(data);
                 break;
             case "error":
-                content.innerHTML = `
-          <div class="ic-error">
-            <span class="ic-error-icon">⚠</span>
-            ${this.escapeHtml(data?.error ?? "Something went wrong.")}
-          </div>
-        `;
+                content.innerHTML = this.renderStatusState("Connection issue", data?.error || "Something went wrong while generating the brief.");
                 break;
             case "no-content":
-                content.innerHTML = `
-          <div class="ic-empty">
-            <span class="ic-empty-icon">◎</span>
-            No readable content found on this page.
-          </div>
-        `;
+                content.innerHTML = this.renderStatusState("No readable article", "This page does not look like a readable article yet, so there was not enough clean text to summarize.");
                 break;
+        }
+    }
+    renderSuccessState(data) {
+        const title = this.escapeHtml(data?.title || document.title || "Untitled article");
+        const standfirst = this.escapeHtml(data?.standfirst || data?.summary || "");
+        const summary = this.escapeHtml(data?.summary || "");
+        const bullets = Array.isArray(data?.bullets) ? data?.bullets : [];
+        const modelLabel = this.escapeHtml(this.formatModel(data?.model));
+        const sourceHost = this.escapeHtml(this.getSourceHost());
+        const sourcePath = this.escapeHtml(this.getSourcePath());
+        return `
+      <div class="ic-hero">
+        <p class="ic-kicker">Reading brief</p>
+        <h2 class="ic-title">${title}</h2>
+        <p class="ic-standfirst">${standfirst}</p>
+      </div>
+
+      <section class="ic-card">
+        <div class="ic-card-head">
+          <p class="ic-label">In short</p>
+          <span class="ic-chip">${modelLabel}</span>
+        </div>
+        <p class="ic-summary">${summary}</p>
+      </section>
+
+      <section class="ic-card">
+        <p class="ic-label">Key points</p>
+        <ul class="ic-list">${this.renderBullets(bullets)}</ul>
+      </section>
+
+      <div class="ic-meta">
+        <span class="ic-meta-pill">Source ${sourceHost}</span>
+        <span class="ic-meta-url">${sourcePath}</span>
+      </div>
+    `;
+    }
+    renderStatusState(title, copy) {
+        return `
+      <div class="ic-status">
+        <p class="ic-kicker">Internet Companion</p>
+        <h2 class="ic-status-title">${this.escapeHtml(title)}</h2>
+        <p class="ic-status-copy">${this.escapeHtml(copy)}</p>
+      </div>
+    `;
+    }
+    renderBullets(bullets) {
+        const safeBullets = bullets.length > 0 ? bullets : ["No key details were available for this page."];
+        return safeBullets
+            .map((bullet) => `<li>${this.escapeHtml(bullet)}</li>`)
+            .join("");
+    }
+    formatModel(model) {
+        if (!model || model === "extractive-fallback") {
+            return "Fallback brief";
+        }
+        return `OpenAI ${model}`;
+    }
+    getSourceHost() {
+        try {
+            return new URL(window.location.href).hostname.replace(/^www\./, "");
+        }
+        catch {
+            return "source";
+        }
+    }
+    getSourcePath() {
+        try {
+            const url = new URL(window.location.href);
+            const path = `${url.pathname}${url.search}` || "/";
+            return path.length > 56 ? `${path.slice(0, 55)}...` : path;
+        }
+        catch {
+            return window.location.href;
         }
     }
     escapeHtml(str) {
@@ -2800,7 +3052,8 @@ class Overlay {
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
     }
 }
 
@@ -2830,14 +3083,14 @@ function extractContent() {
 
 ;// ./src/api.ts
 const API_BASE_URL = "https://internet-companion.ryuto-2007-11-27.workers.dev";
-const MAX_TEXT_LENGTH = 5000;
+const MAX_TEXT_LENGTH = 12000;
 async function analyzeContent(payload) {
     const safePayload = {
         ...payload,
         text: payload.text.slice(0, MAX_TEXT_LENGTH),
     };
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 25000);
     let response;
     try {
         response = await fetch(`${API_BASE_URL}/api/analyze`, {
@@ -2893,7 +3146,13 @@ async function run() {
             title: extracted.title,
             text: extracted.text,
         });
-        ui.setState("success", { summary: result.summary });
+        ui.setState("success", {
+            title: extracted.title,
+            standfirst: result.standfirst,
+            summary: result.summary,
+            bullets: result.bullets,
+            model: result.model,
+        });
     }
     catch (err) {
         const message = err instanceof Error ? err.message : "Failed to connect to API.";

@@ -64,11 +64,34 @@ The extension currently POSTs to:
 **Response:**
 ```json
 {
-  "summary": "A concise summary of the article..."
+  "standfirst": "A one-sentence editorial takeaway.",
+  "summary": "A concise 2-3 sentence brief of the article...",
+  "bullets": [
+    "Three concrete key points.",
+    "Pulled from the article text.",
+    "Designed for quick scanning."
+  ],
+  "model": "gpt-5-mini"
 }
 ```
 
 The worker implementation lives in `worker.ts` and already includes CORS headers for browser requests.
+
+## OpenAI Model
+
+The worker now uses the OpenAI Responses API when an `OPENAI_API_KEY` secret is available.
+
+- Default model: `gpt-5-mini`
+- Override model: set `OPENAI_MODEL`
+- No API key: the worker falls back to a local extractive brief instead of failing outright
+
+For a Cloudflare Worker deployment, add the key as a secret and redeploy:
+
+```bash
+wrangler secret put OPENAI_API_KEY
+```
+
+If you want a different model, set `OPENAI_MODEL` in your worker environment before deploying.
 
 ## Changing the API Endpoint
 

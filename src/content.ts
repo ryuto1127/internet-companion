@@ -30,7 +30,13 @@ async function run(): Promise<void> {
       text: extracted.text,
     });
 
-    ui.setState("success", { summary: result.summary });
+    ui.setState("success", {
+      title: extracted.title,
+      standfirst: result.standfirst,
+      summary: result.summary,
+      bullets: result.bullets,
+      model: result.model,
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to connect to API.";

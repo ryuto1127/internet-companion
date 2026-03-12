@@ -5,13 +5,16 @@ export interface AnalyzeRequest {
 }
 
 export interface AnalyzeResponse {
+  standfirst: string;
   summary: string;
+  bullets: string[];
+  model: string;
 }
 
 const API_BASE_URL =
   "https://internet-companion.ryuto-2007-11-27.workers.dev";
 
-const MAX_TEXT_LENGTH = 5000;
+const MAX_TEXT_LENGTH = 12000;
 
 export async function analyzeContent(
   payload: AnalyzeRequest
@@ -23,7 +26,7 @@ export async function analyzeContent(
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 25000);
 
   let response: Response;
 
