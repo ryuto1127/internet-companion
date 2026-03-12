@@ -1,0 +1,20 @@
+{
+  "name": "internet-companion",
+  "version": "1.0.0",
+  "description": "Internet Companion Chrome Extension",
+  "scripts": {
+    "build": "webpack --config webpack.config.js",
+    "watch": "webpack --config webpack.config.js --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/mozilla__readability": "^0.4.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0"
+  }
+}
